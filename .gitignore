@@ -1,2 +1,3 @@
 /target
+zone_cfg_derive/target
 Cargo.lock
