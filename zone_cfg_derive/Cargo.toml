@@ -2,8 +2,10 @@
 name = "zone_cfg_derive"
 version = "0.1.1"
 authors = ["Sean Klein <sean@oxide.computer>"]
-repository = "https://github.com/oxidecomputer/zone"
 edition = "2018"
+repository = "https://github.com/oxidecomputer/zone"
+description = "Rust bindings for Zone management (proc macro generation helper)"
+license = "MPL-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
