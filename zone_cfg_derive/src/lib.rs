@@ -1,14 +1,14 @@
 extern crate proc_macro;
 
-use heck::{SnakeCase, KebabCase};
-use quote::{format_ident, quote};
+use heck::{KebabCase, SnakeCase};
 use proc_macro_error::{abort, proc_macro_error, ResultExt};
+use quote::{format_ident, quote};
 use syn::{
     self,
-    parse_macro_input,
     parse::{Parse, ParseStream},
+    parse_macro_input,
     punctuated::Punctuated,
-    DeriveInput, Ident, LitStr, Token
+    DeriveInput, Ident, LitStr, Token,
 };
 
 #[proc_macro_derive(Resource, attributes(resource))]
@@ -30,17 +30,17 @@ pub fn derive_resource(item: proc_macro::TokenStream) -> proc_macro::TokenStream
     let mut global_attrs = GlobalAttrs { attrs: vec![] };
 
     let parsed_fields: Vec<ParsedField> = fields
-            .named
-            .into_iter()
-            .map(|field| {
-                let (globals, field_attrs) = parse_attributes(&field.attrs);
-                global_attrs.attrs.extend(globals);
-                ParsedField {
-                    field,
-                    attrs: field_attrs,
-                }
-            })
-            .collect();
+        .named
+        .into_iter()
+        .map(|field| {
+            let (globals, field_attrs) = parse_attributes(&field.attrs);
+            global_attrs.attrs.extend(globals);
+            ParsedField {
+                field,
+                attrs: field_attrs,
+            }
+        })
+        .collect();
 
     let scope_name = get_scope_name(&input_name);
 
@@ -63,7 +63,6 @@ pub fn derive_resource(item: proc_macro::TokenStream) -> proc_macro::TokenStream
         } else {
             format!("add_{}", input_name.to_string().to_snake_case())
         }
-
     );
     let tokens = quote! {
         // Auto-generated implementation of Scoped resource.
@@ -91,9 +90,9 @@ fn get_scope_name(input_name: &Ident) -> Ident {
 }
 
 // Within the scope object, provide setters.
-fn setters(scope_name: &Ident, parsed_fields: &Vec<ParsedField>)
-    -> proc_macro2::TokenStream {
-    parsed_fields.iter()
+fn setters(scope_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro2::TokenStream {
+    parsed_fields
+        .iter()
         .map(|parsed| {
             let name = parsed.name();
             let ty = parsed.ty();
@@ -125,21 +124,17 @@ fn setters(scope_name: &Ident, parsed_fields: &Vec<ParsedField>)
         .collect()
 }
 
-fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>)
-    -> proc_macro2::TokenStream {
+fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro2::TokenStream {
     let scope_name = get_scope_name(&input_name);
     let input_name_kebab = input_name.to_string().to_kebab_case();
-    parsed_fields.iter()
+    parsed_fields
+        .iter()
         .map(|parsed| {
             if parsed.selector() {
                 let name = parsed.name();
                 let snake_input_name = input_name.to_string().to_snake_case();
                 let ty = parsed.ty();
-                let selector = format_ident!(
-                    "select_{}_by_{}",
-                    snake_input_name,
-                    name,
-                );
+                let selector = format_ident!("select_{}_by_{}", snake_input_name, name,);
                 let selector_msg = format!(
                     "Generated selector for the [{}] resource.\n\n\
                     Allows the selection of an existing resource for modification
@@ -149,11 +144,7 @@ fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>)
                     parsed.field_name(),
                 );
 
-                let remover = format_ident!(
-                    "remove_{}_by_{}",
-                    snake_input_name,
-                    name,
-                );
+                let remover = format_ident!("remove_{}_by_{}", snake_input_name, name,);
                 let remover_msg = format!(
                     "Generated removal function for the [{}] resource\n\n\
                     Allows the removal of all existing resources with a matching
@@ -203,9 +194,11 @@ fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>)
 }
 
 // Create the mechanism to create/destroy the scope object.
-fn constructor(input_name: &Ident,
-               parsed_fields: &Vec<ParsedField>,
-               global_attrs: &GlobalAttrs) -> proc_macro2::TokenStream {
+fn constructor(
+    input_name: &Ident,
+    parsed_fields: &Vec<ParsedField>,
+    global_attrs: &GlobalAttrs,
+) -> proc_macro2::TokenStream {
     let scope_name = get_scope_name(&input_name);
     let input_name_snake = input_name.to_string().to_snake_case();
     let input_name_kebab = input_name.to_string().to_kebab_case();
@@ -215,7 +208,8 @@ fn constructor(input_name: &Ident,
     // - A local named "values"
     //
     // Push back all possible values to the scope.
-    let initial_set_values: proc_macro2::TokenStream = parsed_fields.iter()
+    let initial_set_values: proc_macro2::TokenStream = parsed_fields
+        .iter()
         .map(|parsed| {
             let values = format_ident!("values");
             let field = parsed.field.ident.as_ref().unwrap();
@@ -239,7 +233,7 @@ fn constructor(input_name: &Ident,
             This scope allows callers to safely set values within the [{}] object.",
             input_name.to_string()
         );
-        quote!{
+        quote! {
             impl<'a> #scope_name<'a> {
                 fn new(config: &'a mut Config) -> Self {
                     let mut scope = #scope_name {
@@ -348,7 +342,6 @@ impl ParsedField {
         let ty = &self.field.ty;
         quote! { #ty }
     }
-
 }
 
 enum ResourceAttr {
@@ -372,13 +365,13 @@ impl Parse for ResourceAttr {
             let lit: LitStr = input.parse()?;
             match name_str.as_ref() {
                 "name" => Ok(ResourceAttr::Name(name, lit)),
-                _ => abort!(name, "Unexpected attribute: {}", name_str)
+                _ => abort!(name, "Unexpected attribute: {}", name_str),
             }
         } else {
             match name_str.as_ref() {
                 "selector" => Ok(ResourceAttr::Selector(name)),
                 "global" => Ok(ResourceAttr::Global(name)),
-                _ => abort!(name, "Unexpected attribute: {}", name_str)
+                _ => abort!(name, "Unexpected attribute: {}", name_str),
             }
         }
     }
@@ -392,11 +385,9 @@ fn parse_attributes(attrs: &[syn::Attribute]) -> (Vec<ResourceAttr>, Vec<Resourc
             attr.parse_args_with(Punctuated::<ResourceAttr, Token![,]>::parse_terminated)
                 .unwrap_or_abort()
         })
-        .partition(|attr| {
-            match attr {
-                ResourceAttr::Global(_) => true,
-                _ => false,
-            }
+        .partition(|attr| match attr {
+            ResourceAttr::Global(_) => true,
+            _ => false,
         })
 }
 

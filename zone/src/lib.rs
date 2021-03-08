@@ -734,44 +734,34 @@ mod tests {
         cfg.get_global()
             .set_path("/export/home/myzone")
             .set_autoboot(true);
-        cfg.add_fs(
-            &Fs {
-                ty: "lofs".to_string(),
-                dir: "/usr/local".to_string(),
-                special: "/opt/local".to_string(),
-                options: vec!["ro".to_string(), "nodevices".to_string()],
-                ..Default::default()
-            }
-        );
-        cfg.add_net(
-            &Net {
-                address: Some("192.168.0.1/24".to_string()),
-                physical: "eri0".to_string(),
-                ..Default::default()
-            }
-        );
-        cfg.add_net(
-            &Net {
-                address: Some("192.168.1.2/24".to_string()),
-                physical: "eri0".to_string(),
-                ..Default::default()
-            }
-        );
-        cfg.add_net(
-            &Net {
-                address: Some("192.168.2.3/24".to_string()),
-                physical: "eri0".to_string(),
-                ..Default::default()
-            }
-        );
+        cfg.add_fs(&Fs {
+            ty: "lofs".to_string(),
+            dir: "/usr/local".to_string(),
+            special: "/opt/local".to_string(),
+            options: vec!["ro".to_string(), "nodevices".to_string()],
+            ..Default::default()
+        });
+        cfg.add_net(&Net {
+            address: Some("192.168.0.1/24".to_string()),
+            physical: "eri0".to_string(),
+            ..Default::default()
+        });
+        cfg.add_net(&Net {
+            address: Some("192.168.1.2/24".to_string()),
+            physical: "eri0".to_string(),
+            ..Default::default()
+        });
+        cfg.add_net(&Net {
+            address: Some("192.168.2.3/24".to_string()),
+            physical: "eri0".to_string(),
+            ..Default::default()
+        });
         cfg.get_global().set_cpu_shares(5);
-        cfg.add_capped_memory(
-            &CappedMemory {
-                physical: Some("50m".to_string()),
-                swap: Some("100m".to_string()),
-                ..Default::default()
-            }
-        );
+        cfg.add_capped_memory(&CappedMemory {
+            physical: Some("50m".to_string()),
+            swap: Some("100m".to_string()),
+            ..Default::default()
+        });
 
         cfg.run().unwrap();
     }

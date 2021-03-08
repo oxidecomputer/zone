@@ -1,0 +1,15 @@
+[package]
+name = "zone"
+version = "0.1.0"
+authors = ["Sean Klein <sean@oxide.computer>"]
+edition = "2018"
+repository = "https://github.com/oxidecomputer/zone"
+description = "Rust bindings for Zone management"
+license = "MPL-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+thiserror = "1.0"
+itertools = "0.10"
+zone_cfg_derive = { path = "../zone_cfg_derive" }
