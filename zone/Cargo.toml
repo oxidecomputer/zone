@@ -1,6 +1,6 @@
 [package]
 name = "zone"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Sean Klein <sean@oxide.computer>"]
 edition = "2018"
 repository = "https://github.com/oxidecomputer/zone"
@@ -12,4 +12,4 @@ license = "MPL-2.0"
 [dependencies]
 thiserror = "1.0"
 itertools = "0.10"
-zone_cfg_derive = { version = "0.1.1", path = "../zone_cfg_derive" }
+zone_cfg_derive = { version = "0.1.2", path = "../zone_cfg_derive" }
