@@ -1,6 +1,9 @@
 // Copyright 2021 Oxide Computer Company
 
 //! APIs for interacting with the Solaris zone facility.
+//!
+//! - Entrypoint for `zonecfg`: [Config].
+//! - Entrypoint for `zonename`: [current].
 
 use itertools::Itertools;
 use std::collections::BTreeSet;
@@ -44,6 +47,7 @@ impl OutputExt for std::process::Output {
     }
 }
 
+/// Errors which can be returned from zone commands.
 #[derive(Error, Debug)]
 pub enum ZoneError {
     /// Failure to parse the output of a query command.
@@ -58,16 +62,6 @@ pub enum ZoneError {
     #[error("Failed to parse command output: {0}")]
     CommandOutput(#[from] CommandOutputError),
 }
-
-// zoneadm -z zonename [-u uuid-match] subcommand [subcommand_options]
-
-// - zoneadm list
-//   -c --> All *configured* zones
-//   -i --> All *installed* zones
-//   (neither c/i) --> All *running* zones
-//   -n --> Do not include global zone
-//   -v --> Human readable output
-//   -p --> Machine readable output (colon separated)
 
 enum PropertyName {
     Implicit,
@@ -481,11 +475,51 @@ pub struct Admin {
     pub auths: BTreeSet<Auths>,
 }
 
-// zonecfg -z zonename subcommand
-//
-// Don't impact running zones; reboot necessary to take effect.
-
 /// Entry point for `zonecfg` commands.
+///
+/// This struct can be used to construct arguments to the underlying
+/// `zonecfg` command. It does not actually issue any commands to the
+/// underlying utility until [`Config::run`] is issued.
+///
+/// # Examples
+///
+/// ## Creation of a new zone.
+/// ```no_run
+/// let mut cfg = zone::Config::create(
+///     /* zone name= */ "myzone",
+///     /* overwrite= */ true,
+///     zone::CreationOptions::Default);
+///
+/// cfg.get_global()
+///     set_path("/my/path")
+///     set_autoboot(false);
+/// cfg.add_fs(&zone::Fs {
+///     ty: "lofs".to_string(),
+///     dir: "/usr/local".to_string(),
+///     special: "/opt/local".to_string(),
+///     ..Default::default()
+/// })
+///
+/// // Issues the previously enqueued operations to zonecfg.
+/// cfg.run().unwrap();
+/// ```
+///
+/// ## Selection and modification of an existing zone.
+/// ```no_run
+/// let mut cfg = zone::Config::new("myzone");
+///
+/// // Clear the hostid.
+/// cfg.get_global().set_hostid(None);
+///
+/// // Select an existing attribute and modify.
+/// cfg.select_net_by_physical("eth0").set_allowed_address("127.0.0.1");
+///
+/// // Remove all resources relating to capped memory.
+/// cfg.remove_all_capped_memory();
+///
+/// // Issues the previously enqueued operations to zonecfg.
+/// cfg.run().unwrap();
+/// ```
 pub struct Config {
     /// Name of the zone.
     name: String,
@@ -570,19 +604,6 @@ impl Config {
         self.args.clear();
         Ok(out)
     }
-
-    // TODO:
-    //
-    // - commit
-    //   COMMIT THE CURRENT CONFIG to storage.
-    //   Attempted automatically when a zonecfg session ends.
-    //   (XXX: Maybe ignore this?)
-    //
-    // - info (lots of options)
-    //  QUERIES about the current config.
-    //
-    // - verify
-    //  CHECKS that the current config is correct (all required props spec'd).
 }
 
 /// Returns the name of the current zone, if one exists.
@@ -593,6 +614,17 @@ pub fn current() -> Result<String, ZoneError> {
         .map_err(ZoneError::Command)?
         .read_stdout()?)
 }
+
+// zoneadm -z zonename [-u uuid-match] subcommand [subcommand_options]
+
+// - zoneadm list
+//   -c --> All *configured* zones
+//   -i --> All *installed* zones
+//   (neither c/i) --> All *running* zones
+//   -n --> Do not include global zone
+//   -v --> Human readable output
+//   -p --> Machine readable output (colon separated)
+
 
 #[cfg(test)]
 mod tests {

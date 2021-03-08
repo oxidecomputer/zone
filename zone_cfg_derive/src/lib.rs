@@ -11,6 +11,35 @@ use syn::{
     DeriveInput, Ident, LitStr, Token,
 };
 
+/// Proc macro used for autogenerating "Scopes" from resource objects.
+///
+/// This crate is very tightly coupled with the "zone" crate; it injects
+/// methods into the `zone::Config` object.
+///
+/// The following attribute macros may be used:
+/// - resource(name = "NAME")
+///   Allows setting a custom name for a field to be emitted to the zonecfg command.
+/// - resource(selector)
+///   Identifies that this field may be used to select the resource, as a
+///   query parameter for searching across resources.
+/// - resources(global)
+///   (Can be attached to any field, it is parsed per-resource)
+///   Identifies that this is the Global resource, which has some unique
+///   handling.
+///
+/// For each resource, the following is generated:
+/// - For non-global resources:
+///     Config::add_{resource_name} to add a new resource.
+///     Config::select_{resource_name}_by_{selector} for all selectors.
+///     Config::remove_all_{resource} to remove a resource
+///     Config::remove_{resource_name}_by_{selector} for all selectors.
+/// - For the global resource:
+///     Config::get_global to select the global resource.
+/// - For all resources:
+///     {resource_name}Scope, an object representing the scope,
+///     which contains a collection of setters for each field.
+///     Objects which can be cleared accept optional arguments; providing
+///     `None` clears the parameter, providing `Some(...)` sets the parameter.
 #[proc_macro_derive(Resource, attributes(resource))]
 #[proc_macro_error]
 pub fn derive_resource(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -389,12 +418,4 @@ fn parse_attributes(attrs: &[syn::Attribute]) -> (Vec<ResourceAttr>, Vec<Resourc
             ResourceAttr::Global(_) => true,
             _ => false,
         })
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
 }
