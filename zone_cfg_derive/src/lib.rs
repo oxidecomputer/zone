@@ -27,23 +27,188 @@ pub fn derive_resource(item: proc_macro::TokenStream) -> proc_macro::TokenStream
         _ => panic!("Named fields only"),
     };
 
+    let mut global_attrs = GlobalAttrs { attrs: vec![] };
+
     let parsed_fields: Vec<ParsedField> = fields
             .named
             .into_iter()
             .map(|field| {
-                let attrs = parse_attributes(&field.attrs);
+                let (globals, field_attrs) = parse_attributes(&field.attrs);
+                global_attrs.attrs.extend(globals);
                 ParsedField {
                     field,
-                    attrs,
+                    attrs: field_attrs,
                 }
             })
             .collect();
 
-    let scope_name = format_ident!("{}Scope", input_name);
+    let scope_name = get_scope_name(&input_name);
+
+    // Within the scope object, provide setters.
+    let scope_setters = setters(&scope_name, &parsed_fields);
+
+    // Mechanism to construct/destroy scope.
+    let scope_constructor = constructor(&input_name, &parsed_fields, &global_attrs);
+
+    let scope_selectors = selectors(&input_name, &parsed_fields);
+
+    let scope_msg = format!(
+        "Generated scope for the [{}] resource.\n\n\
+        This object represents the resource scope for a zone configuration, and
+        automatically closes that scope when dropped.\n\n\
+        To construct this object, refer to [Config::{}].",
+        input_name.to_string(),
+        if global_attrs.is_global_resource() {
+            format!("get_{}", input_name.to_string().to_snake_case())
+        } else {
+            format!("add_{}", input_name.to_string().to_snake_case())
+        }
+
+    );
+    let tokens = quote! {
+        // Auto-generated implementation of Scoped resource.
+
+        #[doc = #scope_msg]
+        pub struct #scope_name<'a> {
+            config: &'a mut Config,
+        }
+
+        impl<'a> #scope_name<'a> {
+            fn push(&mut self, arg: impl Into<String>) {
+                self.config.push(arg.into())
+            }
+        }
+
+        #scope_setters
+        #scope_constructor
+        #scope_selectors
+    };
+    proc_macro::TokenStream::from(tokens)
+}
+
+fn get_scope_name(input_name: &Ident) -> Ident {
+    format_ident!("{}Scope", input_name)
+}
+
+// Within the scope object, provide setters.
+fn setters(scope_name: &Ident, parsed_fields: &Vec<ParsedField>)
+    -> proc_macro2::TokenStream {
+    parsed_fields.iter()
+        .map(|parsed| {
+            let name = parsed.name();
+            let ty = parsed.ty();
+            let setter = format_ident!("set_{}", parsed.field_name());
+
+            quote! {
+                impl<'a> #scope_name<'a> {
+                    pub fn #setter(&mut self, value: impl Into<#ty>) -> &mut Self {
+                        let value: #ty = value.into();
+                        for property in value.get_properties() {
+                            let name = match &property.name {
+                                PropertyName::Implicit => #name,
+                                PropertyName::Explicit(name) => name,
+                            };
+                            self.push(format!("set {}={}", name, property.value));
+                        }
+                        for property_name in value.get_clearables() {
+                            let name = match &property_name {
+                                PropertyName::Implicit => #name,
+                                PropertyName::Explicit(name) => name,
+                            };
+                            self.push(format!("clear {}", name));
+                        }
+                        self
+                    }
+                }
+            }
+        })
+        .collect()
+}
+
+fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>)
+    -> proc_macro2::TokenStream {
+    let scope_name = get_scope_name(&input_name);
+    let input_name_kebab = input_name.to_string().to_kebab_case();
+    parsed_fields.iter()
+        .map(|parsed| {
+            if parsed.selector() {
+                let name = parsed.name();
+                let snake_input_name = input_name.to_string().to_snake_case();
+                let ty = parsed.ty();
+                let selector = format_ident!(
+                    "select_{}_by_{}",
+                    snake_input_name,
+                    name,
+                );
+                let selector_msg = format!(
+                    "Generated selector for the [{}] resource.\n\n\
+                    Allows the selection of an existing resource for modification
+                    with a matching value of [{}::{}].",
+                    input_name.to_string(),
+                    input_name.to_string(),
+                    parsed.field_name(),
+                );
+
+                let remover = format_ident!(
+                    "remove_{}_by_{}",
+                    snake_input_name,
+                    name,
+                );
+                let remover_msg = format!(
+                    "Generated removal function for the [{}] resource\n\n\
+                    Allows the removal of all existing resources with a matching
+                    value of [{}::{}].",
+                    input_name.to_string(),
+                    input_name.to_string(),
+                    parsed.field_name(),
+                );
+                quote! {
+                    impl Config {
+                        #[doc = #selector_msg]
+                        pub fn #selector(&mut self, value: impl Into<#ty>) -> #scope_name {
+                            let value: #ty = value.into();
+                            let mut scope = #scope_name {
+                                config: self
+                            };
+                            scope.push(
+                                format!("select {} {}={}",
+                                    #input_name_kebab,
+                                    #name,
+                                    value,
+                                )
+                            );
+                            scope
+                        }
+
+                        #[doc = #remover_msg]
+                        pub fn #remover(&mut self, value: impl Into<#ty>) {
+                            let value: #ty = value.into();
+                            self.push(
+                                format!(
+                                    "remove -F {} {}={}",
+                                    #input_name_kebab,
+                                    #name,
+                                    value,
+                                )
+                            );
+                        }
+
+                    }
+                }
+            } else {
+                quote! {}
+            }
+        })
+        .collect()
+}
+
+// Create the mechanism to create/destroy the scope object.
+fn constructor(input_name: &Ident,
+               parsed_fields: &Vec<ParsedField>,
+               global_attrs: &GlobalAttrs) -> proc_macro2::TokenStream {
+    let scope_name = get_scope_name(&input_name);
     let input_name_snake = input_name.to_string().to_snake_case();
     let input_name_kebab = input_name.to_string().to_kebab_case();
-
-    eprintln!("Parsing: {}", input_name);
 
     // Given:
     // - A scope object named "scope"
@@ -67,90 +232,88 @@ pub fn derive_resource(item: proc_macro::TokenStream) -> proc_macro::TokenStream
         })
         .collect();
 
-    // Within the scope object, provide setters.
-    let scope_setters: proc_macro2::TokenStream = parsed_fields.iter()
-        .map(|parsed| {
-            let name = parsed.name();
-            let ty = parsed.ty();
-            let setter = format_ident!("set_{}", parsed.field_name());
-
-            quote! {
-                pub fn #setter<T: Into<#ty>>(&mut self, value: T) {
-                    let value: #ty = value.into();
-                    for property in value.get_properties() {
-                        let name = match &property.name {
-                            PropertyName::Implicit => #name,
-                            PropertyName::Explicit(name) => name,
-                        };
-                        self.push(format!("set {}={}", name, property.value));
-                    }
-                    for property_name in value.get_clearables() {
-                        let name = match &property_name {
-                            PropertyName::Implicit => #name,
-                            PropertyName::Explicit(name) => name,
-                        };
-                        self.push(format!("clear {}", name));
-                    }
+    if global_attrs.is_global_resource() {
+        let scope_get = format_ident!("get_{}", input_name_snake);
+        let scope_get_msg = format!(
+            "Acquire a reference to the global resource scope.
+            This scope allows callers to safely set values within the [{}] object.",
+            input_name.to_string()
+        );
+        quote!{
+            impl<'a> #scope_name<'a> {
+                fn new(config: &'a mut Config) -> Self {
+                    let mut scope = #scope_name {
+                        config
+                    };
+                    scope
                 }
             }
-        })
-        .collect();
 
-    // Generated code:
-    let scope_msg = format!(
-        "Generated scope for [{}]. This object represents the resource scope for a zone
-         configuration, and automatically closes that scope when dropped.",
-        input_name.to_string()
-    );
-    let scope_adder = format_ident!("add_{}", input_name_snake);
-    let scope_adder_msg = format!(
-        "Creates a new scope from a [{}] object. This begins specification for the resource,
-         and returns an object which represents the new scope.",
-        input_name.to_string()
-    );
-    let tokens = quote! {
-        // Auto-generated implementation of Scoped resource.
-
-        #[doc = #scope_msg]
-        pub struct #scope_name<'a> {
-            config: &'a mut Config,
-        }
-
-        impl<'a> #scope_name<'a> {
-            fn push<S: Into<String>>(&mut self, arg: S) {
-                self.config.args.push(arg.into())
-            }
-
-            fn add(config: &'a mut Config, values: &#input_name)
-                -> Self {
-                let mut scope = #scope_name {
-                    config
-                };
-
-                scope.push(format!("add {}", #input_name_kebab));
-                #initial_set_values
-                scope
-            }
-
-            #scope_setters
-        }
-
-        impl<'a> Drop for #scope_name<'a> {
-            /// Emits an "end" token, signifing the end of a resource scope.
-            fn drop(&mut self) {
-                self.push("end".to_string());
+            impl Config {
+                #[doc = #scope_get_msg]
+                pub fn #scope_get(&mut self) -> #scope_name {
+                    #scope_name::new(self)
+                }
             }
         }
+    } else {
+        let scope_adder = format_ident!("add_{}", input_name_snake);
+        let scope_adder_msg = format!(
+            "Creates a new scope from a [{}] object. This begins
+            specification for the resource, and returns an object which
+            represents the new scope.",
+            input_name.to_string()
+        );
 
-        // Auto-generated bindings within the config object.
-        impl Config {
-            #[doc = #scope_adder_msg]
-            pub fn #scope_adder(&mut self, values: &#input_name) -> #scope_name {
-                #scope_name::add(self, values)
+        let scope_removal = format_ident!("remove_all_{}", input_name_snake);
+        let scope_removal_msg = format!(
+            "Deletes resources associated with the [{}] object.",
+            input_name.to_string()
+        );
+
+        quote! {
+            impl<'a> Drop for #scope_name<'a> {
+                /// Emits an "end" token, signifing the end of a resource scope.
+                fn drop(&mut self) {
+                    self.push("end".to_string());
+                }
+            }
+
+            // Auto-generated bindings within the config object.
+            impl Config {
+                #[doc = #scope_adder_msg]
+                pub fn #scope_adder(&mut self, values: &#input_name) -> #scope_name {
+                    let mut scope = #scope_name {
+                        config: self
+                    };
+
+                    scope.push(format!("add {}", #input_name_kebab));
+                    #initial_set_values
+                    scope
+                }
+
+                #[doc = #scope_removal_msg]
+                pub fn #scope_removal(&mut self) {
+                    self.push(format!("remove -F {}", #input_name_kebab));
+                }
             }
         }
-    };
-    proc_macro::TokenStream::from(tokens)
+    }
+}
+
+struct GlobalAttrs {
+    attrs: Vec<ResourceAttr>,
+}
+
+impl GlobalAttrs {
+    fn is_global_resource(&self) -> bool {
+        for attr in &self.attrs {
+            if let ResourceAttr::Global(_) = attr {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 struct ParsedField {
@@ -159,6 +322,15 @@ struct ParsedField {
 }
 
 impl ParsedField {
+    fn selector(&self) -> bool {
+        for attr in &self.attrs {
+            if let ResourceAttr::Selector(_) = attr {
+                return true;
+            }
+        }
+        false
+    }
+
     fn field_name(&self) -> String {
         self.field.ident.as_ref().unwrap().to_string()
     }
@@ -180,6 +352,10 @@ impl ParsedField {
 }
 
 enum ResourceAttr {
+    // Per-resource attributes
+    Global(Ident),
+
+    // Per-field attributes
     Selector(Ident),
     Name(Ident, LitStr),
 }
@@ -201,13 +377,14 @@ impl Parse for ResourceAttr {
         } else {
             match name_str.as_ref() {
                 "selector" => Ok(ResourceAttr::Selector(name)),
+                "global" => Ok(ResourceAttr::Global(name)),
                 _ => abort!(name, "Unexpected attribute: {}", name_str)
             }
         }
     }
 }
 
-fn parse_attributes(attrs: &[syn::Attribute]) -> Vec<ResourceAttr> {
+fn parse_attributes(attrs: &[syn::Attribute]) -> (Vec<ResourceAttr>, Vec<ResourceAttr>) {
     attrs
         .iter()
         .filter(|attr| attr.path.is_ident("resource"))
@@ -215,8 +392,12 @@ fn parse_attributes(attrs: &[syn::Attribute]) -> Vec<ResourceAttr> {
             attr.parse_args_with(Punctuated::<ResourceAttr, Token![,]>::parse_terminated)
                 .unwrap_or_abort()
         })
-        .collect()
-
+        .partition(|attr| {
+            match attr {
+                ResourceAttr::Global(_) => true,
+                _ => false,
+            }
+        })
 }
 
 #[cfg(test)]

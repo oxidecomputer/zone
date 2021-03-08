@@ -2,13 +2,17 @@
 
 //! APIs for interacting with the Solaris zone facility.
 
-// TODO: Modules to designate properties vs scopes vs other?
-
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::string::ToString;
 use thiserror::Error;
 use zone_cfg_derive::Resource;
+
+const PFEXEC: &str = "/bin/pfexec";
+const ZONENAME: &str = "/usr/bin/zonename";
+const ZONEADM: &str = "/usr/sbin/zoneadm";
+const ZONECFG: &str = "/usr/sbin/zonecfg";
+const ZLOGIN: &str = "/usr/sbin/zlogin";
 
 /// The error type for parsing a bad status code while reading stdout.
 #[derive(Error, Debug)]
@@ -85,12 +89,10 @@ macro_rules! implement_implicit_extractor {
     ($t:ty) => {
         impl PropertyExtractor for $t {
             fn get_properties(&self) -> Vec<Property> {
-                vec![
-                    Property {
-                        name: PropertyName::Implicit,
-                        value: self.to_string(),
-                    }
-                ]
+                vec![Property {
+                    name: PropertyName::Implicit,
+                    value: self.to_string(),
+                }]
             }
             fn get_clearables(&self) -> Vec<PropertyName> {
                 vec![]
@@ -115,21 +117,17 @@ implement_implicit_extractor!(String);
 impl<T: std::fmt::Display> PropertyExtractor for Option<T> {
     fn get_properties(&self) -> Vec<Property> {
         if let Some(value) = self {
-           vec![
-               Property {
-                   name: PropertyName::Implicit,
-                   value: value.to_string(),
-               }
-           ]
+            vec![Property {
+                name: PropertyName::Implicit,
+                value: value.to_string(),
+            }]
         } else {
-           vec![]
+            vec![]
         }
     }
     fn get_clearables(&self) -> Vec<PropertyName> {
         if let None = self {
-            vec![
-                PropertyName::Implicit
-            ]
+            vec![PropertyName::Implicit]
         } else {
             vec![]
         }
@@ -139,16 +137,15 @@ impl<T: std::fmt::Display> PropertyExtractor for Option<T> {
 /// Vec represents the "List" objects within zonecfg.
 impl<T: std::fmt::Display> PropertyExtractor for Vec<T> {
     fn get_properties(&self) -> Vec<Property> {
-        let values: String = self.iter()
+        let values: String = self
+            .iter()
             .map(|val| val.to_string())
             .collect::<Vec<String>>()
             .join(",");
-        vec![
-            Property {
-                name: PropertyName::Implicit,
-                value: format!("[{}]", values),
-            }
-        ]
+        vec![Property {
+            name: PropertyName::Implicit,
+            value: format!("[{}]", values),
+        }]
     }
     fn get_clearables(&self) -> Vec<PropertyName> {
         vec![]
@@ -165,29 +162,48 @@ impl<T: std::fmt::Display> PropertyExtractor for BTreeSet<T> {
             return vec![];
         }
 
-        let values: String = self.iter()
+        let values: String = self
+            .iter()
             .map(|val| val.to_string())
             .collect::<Vec<String>>()
             .join(",");
-        vec![
-            Property {
-                name: PropertyName::Implicit,
-                value: format!("{}", values),
-            }
-        ]
+        vec![Property {
+            name: PropertyName::Implicit,
+            value: format!("{}", values),
+        }]
     }
     fn get_clearables(&self) -> Vec<PropertyName> {
-        vec![]
+        if self.is_empty() {
+            vec![PropertyName::Implicit]
+        } else {
+            vec![]
+        }
     }
 }
 
+/// Identifies the source of a zone's IP stack.
 pub enum IpType {
+    /// The IP stack is shared with thte global zone.
     Shared,
+    /// The IP stack is to be instantiated exclusively to the zone.
     Exclusive,
 }
 
-#[derive(Default, Resource)]
+impl std::fmt::Display for IpType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            IpType::Shared => write!(f, "shared"),
+            IpType::Exclusive => write!(f, "exclusive"),
+        }
+    }
+}
+
+implement_implicit_extractor!(IpType);
+
+#[derive(Resource)]
 pub struct Global {
+    #[resource(global)]
+
     /// The name of the zone.
     #[resource(name = "zonename")]
     pub name: String,
@@ -206,25 +222,49 @@ pub struct Global {
     /// Incompatible with the dedicated-cpu resource.
     pub pool: Option<String>,
     /// The maximum set of privileges any process in this zone can obtain.
-    pub limitpriv: Vec<String>,
+    pub limitpriv: BTreeSet<String>,
     /// The zone's brand type.
     pub brand: String,
     /// 32-bit host identifier.
-    pub hostid: u32,
-
-    /*
-    // XXX
+    pub hostid: Option<u32>,
     /// The way in which IP is shared with the global zone.
-    IP(IpType),
-    CpuShares(String),
-    MaxLwps(String),
-    MaxMessageIDs(String),
-    MaxSemIDs(String),
-    MaxShmIDs(String),
-    MaxShmMemory(String),
-    SchedulingClass(String),
-    FsAllowed(String),
-    */
+    #[resource(name = "ip-type")]
+    pub ip_type: IpType,
+    /// The number of Fair Share Scheduler (FSS) shares to allocate to this
+    /// zone.
+    ///
+    /// This property is incompatible with the dedicated-cpu resource.
+    #[resource(name = "cpu-shares")]
+    pub cpu_shares: Option<u32>,
+    /// The maximum number of LWPs (lightweight processes) available to this
+    /// zone.
+    #[resource(name = "max-lwps")]
+    pub max_lwps: Option<u32>,
+    /// The maximum number of message queue IDs allowed for this zone.
+    #[resource(name = "max-msg-ids")]
+    pub max_message_ids: Option<u32>,
+    /// The maximum number of semaphore IDs allowed for this zone.
+    #[resource(name = "max-sem-ids")]
+    pub max_semaphore_ids: Option<u32>,
+    /// The maximum number of shared memory IDs allowed for this zone.
+    #[resource(name = "max-shm-ids")]
+    pub max_shared_memory_ids: Option<u32>,
+    /// The maximum amount of shared memory allowed for this zone, in bytes.
+    #[resource(name = "max-shm-memory")]
+    pub max_shared_memory: Option<u64>,
+    /// Specifies the scheduling class used for processes running in a zone.
+    ///
+    /// If unspecified, it is inferred as follows:
+    /// - If the `cpu-shares` property has been set, FSS is used.
+    /// - If `cpu-shares` is not set and the `pool` property references a pool
+    /// that has a default scheduling class, that class is used.
+    /// - Otherwise, the system's default scheduling class is used.
+    #[resource(name = "scheduling-class")]
+    pub scheduling_class: Option<String>,
+    /// A comma-separated list of additional filesystems that may be mounted
+    /// within the zone (for example, "ufs,pcfs").
+    #[resource(name = "fs-allowed")]
+    pub fs_allowed: BTreeSet<String>,
 }
 
 /// Values for the resource "fs".
@@ -232,30 +272,23 @@ pub struct Global {
 pub struct Fs {
     /// Type of filesystem mounted within the zone.
     // TODO: Enum?
-    #[resource(name = "type")]
+    #[resource(name = "type", selector)]
     pub ty: String,
     /// Directory (in the zone) where the filesystem will be mounted.
+    #[resource(selector)]
     pub dir: String,
     /// Directory (in the GZ) which will be mounted into the zone.
+    #[resource(selector)]
     pub special: String,
     pub raw: Option<String>,
     // TODO: Enum?
     pub options: Vec<String>,
 }
 
-impl<'a> FsScope<'a> {
-    fn select<S: AsRef<str>>(config: &'a mut Config, name: S) -> FsScope<'a> {
-        config.args.push("select fs".to_string());
-        config.args.push(format!("name={}", name.as_ref()));
-        FsScope {
-            config
-        }
-    }
-}
-
 #[derive(Resource)]
 pub struct Net {
     /// Network interface name (format matching ifconfig(1M)).
+    #[resource(selector)]
     pub physical: String,
 
     /// Network address of the network interface.
@@ -288,6 +321,7 @@ pub struct Device {
 #[derive(Resource)]
 pub struct Rctl {
     /// The name of a resource control object.
+    #[resource(selector)]
     pub name: String,
     /// The priv/limit/action triple of an rctl.
     pub value: String,
@@ -308,7 +342,8 @@ impl AttributeValue {
             AttributeValue::UInt(_) => "uint",
             AttributeValue::Boolean(_) => "boolean",
             AttributeValue::String(_) => "string",
-        }.to_string()
+        }
+        .to_string()
     }
 
     fn value_str(&self) -> String {
@@ -345,17 +380,6 @@ pub struct Attr {
     #[resource(selector)]
     pub name: String,
     pub value: AttributeValue,
-}
-
-impl<'a> AttrScope<'a> {
-    // XXX can select by either name or value
-    fn select<S: AsRef<str>>(config: &'a mut Config, name: S) -> AttrScope<'a> {
-        config.args.push("select attr".to_string());
-        config.args.push(format!("name={}", name.as_ref()));
-        AttrScope {
-            config
-        }
-    }
 }
 
 #[derive(Resource)]
@@ -451,6 +475,7 @@ impl std::fmt::Display for Auths {
 #[derive(Default, Resource)]
 pub struct Admin {
     /// The name of the user to receive authorization.
+    #[resource(selector)]
     pub user: String,
     pub auths: BTreeSet<Auths>,
 }
@@ -458,6 +483,8 @@ pub struct Admin {
 // zonecfg -z zonename subcommand
 //
 // Don't impact running zones; reboot necessary to take effect.
+
+/// Entry point for `zonecfg` commands.
 pub struct Config {
     /// Name of the zone.
     name: String,
@@ -465,7 +492,28 @@ pub struct Config {
     args: Vec<String>,
 }
 
+/// Describes the options for creation a new zone.
+pub enum CreationOptions {
+    /// Configures detached zone onto a new host.
+    ///
+    /// The provided path is the zonepath location of the detached zone that has
+    /// been moved onto this new host.
+    FromDetached(PathBuf),
+    /// Creates a blank configuration.
+    Blank,
+    /// Creates a configuration based on the system defaults.
+    Default,
+    /// Creates a configuration identical to another configured zone.
+    /// The supplied string is the name of the zone to copy.
+    Template(String),
+}
+
 impl Config {
+    fn push<S: AsRef<str>>(&mut self, value: S) {
+        self.args.push(value.as_ref().into());
+    }
+
+    /// Instantiate a zone configuration object, wrapping an existing zone.
     pub fn new<S: AsRef<str>>(name: S) -> Config {
         Config {
             name: name.as_ref().into(),
@@ -473,100 +521,68 @@ impl Config {
         }
     }
 
-    // XXX Could select by one or more attributes
-    pub fn select_attr<S: AsRef<str>>(&mut self, name: S) -> AttrScope {
-        AttrScope::select(self, name)
+    /// Creates a new zone with the provided `name`.
+    ///
+    /// - `overwrite` specifies if the new zone should overwrite
+    /// any existing zone with the same name, if one exists.
+    /// - `options` specifies background information about the zone.
+    pub fn create<S: AsRef<str>>(name: S, overwrite: bool, options: CreationOptions) -> Config {
+        let mut cfg = Self::new(name);
+
+        cfg.push("create");
+        if overwrite {
+            cfg.push("-F".to_string());
+        }
+
+        match options {
+            CreationOptions::FromDetached(path) => {
+                cfg.push(format!("-a {}", path.into_os_string().to_string_lossy()));
+            }
+            CreationOptions::Blank => cfg.push("-b"),
+            CreationOptions::Default => (),
+            CreationOptions::Template(zone) => {
+                cfg.push(format!("-t {}", zone));
+            }
+        };
+
+        cfg
     }
 
-    // XXX Could select by one or more attributes
-    pub fn select_fs<S: AsRef<str>>(&mut self, name: S) -> FsScope {
-        FsScope::select(self, name)
+    /// Enqueues a command to export the zone configuration to a specified path.
+    pub fn export(&mut self, p: impl AsRef<Path>) {
+        self.push(format!("export -f {}", p.as_ref().to_string_lossy()));
     }
 
-    fn get_args(&mut self) -> &[String] {
-        &self.args
+    /// Executes the queued commands for the zone.
+    pub fn run(&mut self) -> Result<String, ZoneError> {
+        Ok(std::process::Command::new(PFEXEC)
+            .env_clear()
+            .arg(ZONECFG)
+            .arg("-z")
+            .arg(&self.name)
+            .args(&self.args)
+            .output()
+            .map_err(ZoneError::Command)?
+            .read_stdout()?)
     }
-
-
-    // RESOURCE vs PROPERTY
-    //
-    // - RESOURCES are equivalent to SCOPES, they contain properties
-    // - PROPERTIES are K/V pairs. Exist globally or in resource scope.
-
-
-    // SCOPE MODIFIERS:
-    // - add
-    // - cancel (?)
-    // - end
-    // - select
 
     // TODO:
-    //
-    // - add <resource_type> (global scope)
-    //   i.e. "add net; set physical=bge0; end"
-    //   BEGIN SPECIFICATION for a resource type. Scope changed
-    //   to that resource type.
-    // - add <property_name property_value> (resource scope)
-    //   ADD PROPERTY+VALUE.
-    //
-    // - cancel
-    //   END RESOURCE SPEC, RESET SCOPE TO GLOBAL.
-    //   Abandons partially specified resources.
-    //   Only valid in resource scope.
-    //   (XXX: Maybe ignore this?)
-    //
-    // - clear <property_name>
-    //   CLEAR the value for the property
     //
     // - commit
     //   COMMIT THE CURRENT CONFIG to storage.
     //   Attempted automatically when a zonecfg session ends.
     //   (XXX: Maybe ignore this?)
     //
-    // - create [-F] [ -a path | -b | -t template]
-    //   CREATE a config for the zone.
-    //   -F: Force (overwrites existing config)
-    //   -a path: Configure detached zone on new host. Path is zonepath of
-    //   detatched zone.
-    //   -b: Blank config.
-    //   -t template: Create config identical to another zone named template.
-    //
-    // - delete [-F]
-    //  DELETES the config from memory + storage.
-    //
-    // - end
-    //  ENDS resource spec. Only applicable when in resource scope.
-    //
-    // - export [-f output-file]
-    //  EXPORTS config to stdout or a specified file.
-    //  The output here is usable in a command file.
-    //
     // - info (lots of options)
     //  QUERIES about the current config.
     //
-    // - remove <resource-type>
-    //  REMOVES the specified resource.
-    //  (Global scope only)
-    //
-    // - select <resource-type> {property-name=property-value}
-    //  SELECTS the resource of the given type which matches prop name/value
-    //  pair. Scope changes to the resource type. Only works if the resource
-    //  can be uniquely identified.
-    //  (Global scope only)
-    //
-    // - set property-name=property-value
-    //  SETS a given property to a given value.
-    //
     // - verify
     //  CHECKS that the current config is correct (all required props spec'd).
-
 }
-
-// TODO: maybe a separate rctl library?
 
 /// Returns the name of the current zone, if one exists.
 pub fn current() -> Result<String, ZoneError> {
-    Ok(std::process::Command::new("/usr/bin/zonename")
+    Ok(std::process::Command::new(ZONENAME)
         .env_clear()
         .output()
         .map_err(ZoneError::Command)?
@@ -577,11 +593,11 @@ pub fn current() -> Result<String, ZoneError> {
 mod tests {
     use super::*;
 
-//    #[test]
-//    fn test_current_zone() {
-//        let zone = current().unwrap();
-//        assert_eq!("global", zone);
-//    }
+    //    #[test]
+    //    fn test_current_zone() {
+    //        let zone = current().unwrap();
+    //        assert_eq!("global", zone);
+    //    }
 
     #[test]
     fn test_cfg_fs() {
@@ -594,22 +610,17 @@ mod tests {
             ..Default::default()
         };
 
-        let mut fs_scope = cfg.add_fs(&fs);
-
-        // Set a mandatory field.
-        fs_scope.set_dir("/path/to/other/dir");
-
-        // Clear and set an optional field.
-        fs_scope.set_raw(None);
-        fs_scope.set_raw(Some("/raw".to_string()));
-
-        // Set a list field.
-        fs_scope.set_options(vec!["abc".to_string(), "def".to_string()]);
-
-        drop(fs_scope);
+        cfg.add_fs(&fs)
+            // Set a mandatory field.
+            .set_dir("/path/to/other/dir")
+            // Clear and set an optional field.
+            .set_raw(None)
+            .set_raw(Some("/raw".to_string()))
+            // Set a list field.
+            .set_options(vec!["abc".to_string(), "def".to_string()]);
 
         assert_eq!(
-            cfg.get_args(),
+            cfg.args,
             &[
                 // Initial resource creation.
                 "add fs",
@@ -617,14 +628,11 @@ mod tests {
                 "set dir=/path/to/dir",
                 "set special=/path/to/special",
                 "set options=[]",
-
                 // Set mandatory field.
                 "set dir=/path/to/other/dir",
-
                 // Clear and set optional fied.
                 "clear raw",
                 "set raw=/raw",
-
                 // Set a list field.
                 "set options=[abc,def]",
                 "end"
@@ -641,10 +649,10 @@ mod tests {
             value: AttributeValue::UInt(10),
         };
 
-        let _ = cfg.add_attr(&attr);
+        cfg.add_attr(&attr);
 
         assert_eq!(
-            cfg.get_args(),
+            cfg.args,
             &[
                 "add attr",
                 "set name=my-attr",
@@ -656,7 +664,7 @@ mod tests {
     }
 
     #[test]
-    fn test_security_flags() {
+    fn test_cfg_security_flags() {
         let mut cfg = Config::new("my-zone");
 
         let mut default = BTreeSet::new();
@@ -668,21 +676,49 @@ mod tests {
             ..Default::default()
         };
 
-        let mut security_flags_scope = cfg.add_security_flags(&security_flags);
-
         let mut lower = BTreeSet::new();
         lower.insert(SecurityFlag::Aslr);
-        security_flags_scope.set_lower(lower);
 
-        drop(security_flags_scope);
+        cfg.add_security_flags(&security_flags).set_lower(lower);
 
         assert_eq!(
-            cfg.get_args(),
+            cfg.args,
             &[
                 "add security-flags",
                 "set default=ASLR,FORBIDNULLMAP",
                 "set lower=ASLR",
                 "end"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_cfg_global() {
+        let mut cfg = Config::new("my-zone");
+
+        let mut fs_allowed = BTreeSet::new();
+        fs_allowed.insert("ufs".to_string());
+        fs_allowed.insert("pcfs".to_string());
+
+        cfg.get_global()
+            .set_name("my-new-zone")
+            .set_autoboot(false)
+            .set_limitpriv(BTreeSet::new())
+            .set_fs_allowed(fs_allowed)
+            .set_pool(Some("my-pool".to_string()))
+            .set_pool(None)
+            .set_ip_type(IpType::Exclusive);
+
+        assert_eq!(
+            cfg.args,
+            &[
+                "set zonename=my-new-zone",
+                "set autoboot=false",
+                "clear limitpriv",
+                "set fs-allowed=pcfs,ufs",
+                "set pool=my-pool",
+                "clear pool",
+                "set ip-type=exclusive",
             ]
         );
     }
