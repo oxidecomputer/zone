@@ -2,6 +2,7 @@
 
 //! APIs for interacting with the Solaris zone facility.
 
+use itertools::Itertools;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::string::ToString;
@@ -285,7 +286,7 @@ pub struct Fs {
     pub options: Vec<String>,
 }
 
-#[derive(Resource)]
+#[derive(Default, Resource)]
 pub struct Net {
     /// Network interface name (format matching ifconfig(1M)).
     #[resource(selector)]
@@ -312,13 +313,13 @@ pub struct Net {
     pub default_router: Option<String>,
 }
 
-#[derive(Resource)]
+#[derive(Default, Resource)]
 pub struct Device {
     /// Device name to match
     pub name: String,
 }
 
-#[derive(Resource)]
+#[derive(Default, Resource)]
 pub struct Rctl {
     /// The name of a resource control object.
     #[resource(selector)]
@@ -382,7 +383,7 @@ pub struct Attr {
     pub value: AttributeValue,
 }
 
-#[derive(Resource)]
+#[derive(Default, Resource)]
 pub struct Dataset {
     /// The name of a ZFS dataset to be accessed from within the zone.
     pub name: String,
@@ -408,7 +409,7 @@ pub struct CappedMemory {
 }
 
 /// Resource indicating the amount of CPU time that can be used by a zone.
-#[derive(Resource)]
+#[derive(Default, Resource)]
 pub struct CappedCpu {
     /// The percentage of a single CPU that can be used
     /// by all user threads in a zone. As an example, "1.0" represents
@@ -527,24 +528,22 @@ impl Config {
     /// any existing zone with the same name, if one exists.
     /// - `options` specifies background information about the zone.
     pub fn create<S: AsRef<str>>(name: S, overwrite: bool, options: CreationOptions) -> Config {
-        let mut cfg = Self::new(name);
-
-        cfg.push("create");
-        if overwrite {
-            cfg.push("-F".to_string());
-        }
-
-        match options {
+        let overwrite_flag = if overwrite {
+            "-F".to_string()
+        } else {
+            "".to_string()
+        };
+        let options = match options {
             CreationOptions::FromDetached(path) => {
-                cfg.push(format!("-a {}", path.into_os_string().to_string_lossy()));
+                format!("-a {}", path.into_os_string().to_string_lossy())
             }
-            CreationOptions::Blank => cfg.push("-b"),
-            CreationOptions::Default => (),
-            CreationOptions::Template(zone) => {
-                cfg.push(format!("-t {}", zone));
-            }
+            CreationOptions::Blank => format!("-b"),
+            CreationOptions::Default => "".to_string(),
+            CreationOptions::Template(zone) => format!("-t {}", zone),
         };
 
+        let mut cfg = Self::new(name);
+        cfg.push(format!("create {} {}", overwrite_flag, options));
         cfg
     }
 
@@ -553,17 +552,23 @@ impl Config {
         self.push(format!("export -f {}", p.as_ref().to_string_lossy()));
     }
 
-    /// Executes the queued commands for the zone.
+    /// Executes the queued commands for the zone, and clears the
+    /// current queued arguments.
     pub fn run(&mut self) -> Result<String, ZoneError> {
-        Ok(std::process::Command::new(PFEXEC)
+        let separator = ";".to_string();
+        let args = self.args.iter().intersperse(&separator);
+
+        let out = std::process::Command::new(PFEXEC)
             .env_clear()
             .arg(ZONECFG)
             .arg("-z")
             .arg(&self.name)
-            .args(&self.args)
+            .args(args)
             .output()
             .map_err(ZoneError::Command)?
-            .read_stdout()?)
+            .read_stdout()?;
+        self.args.clear();
+        Ok(out)
     }
 
     // TODO:
@@ -593,11 +598,11 @@ pub fn current() -> Result<String, ZoneError> {
 mod tests {
     use super::*;
 
-    //    #[test]
-    //    fn test_current_zone() {
-    //        let zone = current().unwrap();
-    //        assert_eq!("global", zone);
-    //    }
+    #[test]
+    fn test_current_zone() {
+        let zone = current().unwrap();
+        assert_eq!("global", zone);
+    }
 
     #[test]
     fn test_cfg_fs() {
@@ -721,5 +726,53 @@ mod tests {
                 "set ip-type=exclusive",
             ]
         );
+    }
+
+    #[test]
+    fn test_cfg_man_page_example() {
+        let mut cfg = Config::create("myzone", true, CreationOptions::Default);
+        cfg.get_global()
+            .set_path("/export/home/myzone")
+            .set_autoboot(true);
+        cfg.add_fs(
+            &Fs {
+                ty: "lofs".to_string(),
+                dir: "/usr/local".to_string(),
+                special: "/opt/local".to_string(),
+                options: vec!["ro".to_string(), "nodevices".to_string()],
+                ..Default::default()
+            }
+        );
+        cfg.add_net(
+            &Net {
+                address: Some("192.168.0.1/24".to_string()),
+                physical: "eri0".to_string(),
+                ..Default::default()
+            }
+        );
+        cfg.add_net(
+            &Net {
+                address: Some("192.168.1.2/24".to_string()),
+                physical: "eri0".to_string(),
+                ..Default::default()
+            }
+        );
+        cfg.add_net(
+            &Net {
+                address: Some("192.168.2.3/24".to_string()),
+                physical: "eri0".to_string(),
+                ..Default::default()
+            }
+        );
+        cfg.get_global().set_cpu_shares(5);
+        cfg.add_capped_memory(
+            &CappedMemory {
+                physical: Some("50m".to_string()),
+                swap: Some("100m".to_string()),
+                ..Default::default()
+            }
+        );
+
+        cfg.run().unwrap();
     }
 }
