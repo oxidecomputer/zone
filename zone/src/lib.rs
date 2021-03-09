@@ -491,14 +491,14 @@ pub struct Admin {
 ///     zone::CreationOptions::Default);
 ///
 /// cfg.get_global()
-///     set_path("/my/path")
-///     set_autoboot(false);
+///    .set_path("/my/path")
+///    .set_autoboot(false);
 /// cfg.add_fs(&zone::Fs {
 ///     ty: "lofs".to_string(),
 ///     dir: "/usr/local".to_string(),
 ///     special: "/opt/local".to_string(),
 ///     ..Default::default()
-/// })
+/// });
 ///
 /// // Issues the previously enqueued operations to zonecfg.
 /// cfg.run().unwrap();
@@ -512,7 +512,8 @@ pub struct Admin {
 /// cfg.get_global().set_hostid(None);
 ///
 /// // Select an existing attribute and modify.
-/// cfg.select_net_by_physical("eth0").set_allowed_address("127.0.0.1");
+/// cfg.select_net_by_physical("eth0")
+///    .set_allowed_address(Some("127.0.0.1".to_string()));
 ///
 /// // Remove all resources relating to capped memory.
 /// cfg.remove_all_capped_memory();
