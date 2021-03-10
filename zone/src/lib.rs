@@ -1,13 +1,16 @@
 // Copyright 2021 Oxide Computer Company
 
-//! APIs for interacting with the Solaris zone facility.
+//! APIs for interacting with the Illumos zone facility.
 //!
 //! - Entrypoint for `zonecfg`: [Config].
+//! - Entrypoint for `zoneadm`: [Adm].
 //! - Entrypoint for `zonename`: [current].
 
 use itertools::Itertools;
 use std::collections::BTreeSet;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::string::ToString;
 use thiserror::Error;
 use zone_cfg_derive::Resource;
@@ -16,7 +19,6 @@ const PFEXEC: &str = "/bin/pfexec";
 const ZONENAME: &str = "/usr/bin/zonename";
 const ZONEADM: &str = "/usr/sbin/zoneadm";
 const ZONECFG: &str = "/usr/sbin/zonecfg";
-const ZLOGIN: &str = "/usr/sbin/zlogin";
 
 /// The error type for parsing a bad status code while reading stdout.
 #[derive(Error, Debug)]
@@ -109,6 +111,18 @@ implement_implicit_extractor!(f32);
 implement_implicit_extractor!(f64);
 implement_implicit_extractor!(String);
 
+impl PropertyExtractor for PathBuf {
+    fn get_properties(&self) -> Vec<Property> {
+        vec![Property {
+            name: PropertyName::Implicit,
+            value: self.to_string_lossy().to_string(),
+        }]
+    }
+    fn get_clearables(&self) -> Vec<PropertyName> {
+        vec![]
+    }
+}
+
 impl<T: std::fmt::Display> PropertyExtractor for Option<T> {
     fn get_properties(&self) -> Vec<Property> {
         if let Some(value) = self {
@@ -121,7 +135,7 @@ impl<T: std::fmt::Display> PropertyExtractor for Option<T> {
         }
     }
     fn get_clearables(&self) -> Vec<PropertyName> {
-        if let None = self {
+        if self.is_none() {
             vec![PropertyName::Implicit]
         } else {
             vec![]
@@ -157,14 +171,14 @@ impl<T: std::fmt::Display> PropertyExtractor for BTreeSet<T> {
             return vec![];
         }
 
-        let values: String = self
+        let value: String = self
             .iter()
             .map(|val| val.to_string())
             .collect::<Vec<String>>()
             .join(",");
         vec![Property {
             name: PropertyName::Implicit,
-            value: format!("{}", values),
+            value,
         }]
     }
     fn get_clearables(&self) -> Vec<PropertyName> {
@@ -177,11 +191,24 @@ impl<T: std::fmt::Display> PropertyExtractor for BTreeSet<T> {
 }
 
 /// Identifies the source of a zone's IP stack.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IpType {
     /// The IP stack is shared with thte global zone.
     Shared,
     /// The IP stack is to be instantiated exclusively to the zone.
     Exclusive,
+}
+
+impl FromStr for IpType {
+    type Err = ZoneError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "shared" => Ok(IpType::Shared),
+            "exclusive" => Ok(IpType::Exclusive),
+            _ => Err(ZoneError::Parse(format!("Invalid Ip Type: {}", s))),
+        }
+    }
 }
 
 impl std::fmt::Display for IpType {
@@ -204,7 +231,7 @@ pub struct Global {
     pub name: String,
     /// The path to the zone's filesystem.
     #[resource(name = "zonepath")]
-    pub path: String,
+    pub path: PathBuf,
     /// Boolean indicating if the zone should be automatically
     /// booted at system boot.
     ///
@@ -545,12 +572,12 @@ pub enum CreationOptions {
 }
 
 impl Config {
-    fn push<S: AsRef<str>>(&mut self, value: S) {
+    fn push(&mut self, value: impl AsRef<str>) {
         self.args.push(value.as_ref().into());
     }
 
     /// Instantiate a zone configuration object, wrapping an existing zone.
-    pub fn new<S: AsRef<str>>(name: S) -> Config {
+    pub fn new(name: impl AsRef<str>) -> Self {
         Config {
             name: name.as_ref().into(),
             args: vec![],
@@ -562,7 +589,10 @@ impl Config {
     /// - `overwrite` specifies if the new zone should overwrite
     /// any existing zone with the same name, if one exists.
     /// - `options` specifies background information about the zone.
-    pub fn create<S: AsRef<str>>(name: S, overwrite: bool, options: CreationOptions) -> Config {
+    ///
+    /// This method does not execute `zonecfg` until [`Config::run`]
+    /// is invoked.
+    pub fn create(name: impl AsRef<str>, overwrite: bool, options: CreationOptions) -> Self {
         let overwrite_flag = if overwrite {
             "-F".to_string()
         } else {
@@ -572,7 +602,7 @@ impl Config {
             CreationOptions::FromDetached(path) => {
                 format!("-a {}", path.into_os_string().to_string_lossy())
             }
-            CreationOptions::Blank => format!("-b"),
+            CreationOptions::Blank => "-b".to_string(),
             CreationOptions::Default => "".to_string(),
             CreationOptions::Template(zone) => format!("-t {}", zone),
         };
@@ -583,8 +613,21 @@ impl Config {
     }
 
     /// Enqueues a command to export the zone configuration to a specified path.
-    pub fn export(&mut self, p: impl AsRef<Path>) {
+    ///
+    /// This method does not execute `zonecfg` until [`Config::run`]
+    /// is invoked.
+    pub fn export(&mut self, p: impl AsRef<Path>) -> &mut Self {
         self.push(format!("export -f {}", p.as_ref().to_string_lossy()));
+        self
+    }
+
+    /// Enqueues a command to delete the zone configuration.
+    ///
+    /// This method does not execute `zonecfg` until [`Config::run`]
+    /// is invoked.
+    pub fn delete(&mut self, force: bool) -> &mut Self {
+        self.push(format!("delete {}", if force { "-F" } else { "" }));
+        self
     }
 
     /// Executes the queued commands for the zone, and clears the
@@ -616,16 +659,208 @@ pub fn current() -> Result<String, ZoneError> {
         .read_stdout()?)
 }
 
-// zoneadm -z zonename [-u uuid-match] subcommand [subcommand_options]
+/// Valid states for a zone.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum State {
+    Configured,
+    Incomplete,
+    Installed,
+    Ready,
+    Mounted,
+    Running,
+    ShuttingDown,
+    Down,
+}
 
-// - zoneadm list
-//   -c --> All *configured* zones
-//   -i --> All *installed* zones
-//   (neither c/i) --> All *running* zones
-//   -n --> Do not include global zone
-//   -v --> Human readable output
-//   -p --> Machine readable output (colon separated)
+impl FromStr for State {
+    type Err = ZoneError;
 
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use State::*;
+
+        match s {
+            "configured" => Ok(Configured),
+            "incomplete" => Ok(Incomplete),
+            "installed" => Ok(Installed),
+            "ready" => Ok(Ready),
+            "mounted" => Ok(Mounted),
+            "running" => Ok(Running),
+            "shutting_down" => Ok(ShuttingDown),
+            "down" => Ok(Down),
+            _ => Err(ZoneError::Parse(format!("Invalid Zone State: {}", s))),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Zone {
+    id: Option<u64>,
+    name: String,
+    state: State,
+    path: PathBuf,
+    uuid: Option<String>,
+    brand: String,
+    ip_type: IpType,
+}
+
+impl Zone {
+    pub fn id(&self) -> Option<u64> {
+        self.id
+    }
+    pub fn global(&self) -> bool {
+        self.name() == "global"
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn state(&self) -> State {
+        self.state
+    }
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+    pub fn uuid(&self) -> Option<&String> {
+        self.uuid.as_ref()
+    }
+    pub fn brand(&self) -> &str {
+        &self.brand
+    }
+    pub fn ip_type(&self) -> IpType {
+        self.ip_type
+    }
+}
+
+impl FromStr for Zone {
+    type Err = ZoneError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut fields = s.split(':');
+        let id = fields
+            .next()
+            .ok_or_else(|| ZoneError::Parse("Missing ID".to_string()))?
+            .parse::<u64>()
+            .ok();
+        let name = fields
+            .next()
+            .ok_or_else(|| ZoneError::Parse("Missing name".to_string()))?
+            .to_string();
+        let state = fields
+            .next()
+            .ok_or_else(|| ZoneError::Parse("Missing state".to_string()))?
+            .parse::<State>()?;
+        let path = PathBuf::from(
+            fields
+                .next()
+                .ok_or_else(|| ZoneError::Parse("Missing path".to_string()))?,
+        );
+        let uuid = {
+            let value = fields
+                .next()
+                .ok_or_else(|| ZoneError::Parse("Missing UUID".to_string()))?;
+            if value.is_empty() {
+                None
+            } else {
+                Some(value.to_string())
+            }
+        };
+        let brand = fields
+            .next()
+            .ok_or_else(|| ZoneError::Parse("Missing brand".to_string()))?
+            .to_string();
+        let ip_type = fields
+            .next()
+            .ok_or_else(|| ZoneError::Parse("Missing IP type".to_string()))?
+            .parse::<IpType>()?;
+
+        Ok(Zone {
+            id,
+            name,
+            state,
+            path,
+            uuid,
+            brand,
+            ip_type,
+        })
+    }
+}
+/// Entry point for `zoneadm` commands.
+pub struct Adm {
+    /// Name of the zone.
+    name: String,
+}
+
+impl Adm {
+    /// Instantiate a new zone administration command.
+    pub fn new(name: impl AsRef<str>) -> Self {
+        Adm {
+            name: name.as_ref().into(),
+        }
+    }
+
+    /// Boots (or activates) the zone.
+    pub fn boot(&mut self) -> Result<String, ZoneError> {
+        self.run(&["boot"])
+    }
+
+    /// Installs a zone by copying an existing installed zone.
+    pub fn clone(&mut self, source: impl AsRef<OsStr>) -> Result<String, ZoneError> {
+        self.run(&[OsStr::new("clone"), source.as_ref()])
+    }
+
+    /// Halts the specified zone.
+    pub fn halt(&mut self) -> Result<String, ZoneError> {
+        self.run(&["halt"])
+    }
+
+    // TODO: Not documented in manpage, but apparently this exists.
+    pub fn mount(&mut self) -> Result<String, ZoneError> {
+        self.run(&["mount"])
+    }
+
+    // TODO: Not documented in manpage, but apparently this exists.
+    pub fn unmount(&mut self) -> Result<String, ZoneError> {
+        self.run(&["unmount"])
+    }
+
+    /// Install the specified zone on the system.
+    pub fn install(&mut self, brand_specific_options: &[&OsStr]) -> Result<String, ZoneError> {
+        let command = &[OsStr::new("install")];
+        self.run([command, brand_specific_options].concat())
+    }
+
+    /// Uninstalls the zone from the system.
+    pub fn uninstall(&mut self, force: bool) -> Result<String, ZoneError> {
+        self.run(&[format!("uninstall {}", if force { "-F" } else { "" })])
+    }
+
+    /// List all zones.
+    pub fn list() -> Result<Vec<Zone>, ZoneError> {
+        Ok(std::process::Command::new(PFEXEC)
+            .env_clear()
+            .arg(ZONEADM)
+            .arg("list")
+            .arg("-cip")
+            .output()
+            .map_err(ZoneError::Command)?
+            .read_stdout()?
+            .split('\n')
+            .map(|s| s.parse::<Zone>())
+            .collect::<Result<Vec<Zone>, _>>()?)
+    }
+
+    fn run(&self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<String, ZoneError> {
+        let out = std::process::Command::new(PFEXEC)
+            .env_clear()
+            .arg(ZONEADM)
+            .arg("-z")
+            .arg(&self.name)
+            .args(args)
+            .output()
+            .map_err(ZoneError::Command)?
+            .read_stdout()?;
+        Ok(out)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -797,5 +1032,45 @@ mod tests {
         });
 
         cfg.run().unwrap();
+    }
+
+    #[test]
+    fn test_list_global() {
+        let zones = Adm::list().unwrap();
+
+        let global = zones.iter().find(|zone| zone.global()).unwrap();
+
+        assert_eq!(global.id().unwrap(), 0);
+        assert_eq!(global.state(), State::Running);
+        assert_eq!(global.ip_type(), IpType::Shared);
+    }
+
+    #[test]
+    fn test_zone_lifecycle() {
+        let name = "lifecycle";
+        let path = Path::new("/opt/lifecycle");
+
+        // Create a zone.
+        let mut cfg = Config::create(name, true, CreationOptions::Default);
+        cfg.get_global().set_path(path).set_autoboot(true);
+        cfg.run().unwrap();
+
+        // Observe that the zone exists.
+        let zone = Adm::list()
+            .unwrap()
+            .into_iter()
+            .find(|z| z.name() == name)
+            .unwrap();
+        assert_eq!(zone.path(), path);
+
+        // Destroy the zone
+        cfg.delete(true).run().unwrap();
+
+        // Observe the zone does not exist
+        assert!(Adm::list()
+            .unwrap()
+            .into_iter()
+            .find(|z| z.name() == name)
+            .is_none());
     }
 }
