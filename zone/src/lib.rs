@@ -205,7 +205,7 @@ impl FromStr for IpType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "shared" => Ok(IpType::Shared),
-            "exclusive" => Ok(IpType::Exclusive),
+            "excl" => Ok(IpType::Exclusive),
             _ => Err(ZoneError::Parse(format!("Invalid Ip Type: {}", s))),
         }
     }
@@ -634,7 +634,7 @@ impl Config {
     /// current queued arguments.
     pub fn run(&mut self) -> Result<String, ZoneError> {
         let separator = ";".to_string();
-        let args = self.args.iter().intersperse(&separator);
+        let args = Itertools::intersperse(self.args.iter(), &separator);
 
         let out = std::process::Command::new(PFEXEC)
             .env_clear()
