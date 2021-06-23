@@ -337,6 +337,7 @@ pub struct Net {
 #[derive(Default, Resource)]
 pub struct Device {
     /// Device name to match
+    #[resource(name = "match")]
     pub name: String,
 }
 
