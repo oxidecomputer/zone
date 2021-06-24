@@ -831,7 +831,11 @@ impl Adm {
 
     /// Uninstalls the zone from the system.
     pub fn uninstall(&mut self, force: bool) -> Result<String, ZoneError> {
-        self.run(&[format!("uninstall {}", if force { "-F" } else { "" })])
+        let mut args = vec!["uninstall"];
+        if force {
+            args.push("-F");
+        }
+        self.run(&args)
     }
 
     /// List all zones.
