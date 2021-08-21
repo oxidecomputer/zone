@@ -1006,7 +1006,8 @@ mod tests {
         let mut cfg = Config::create("myzone", true, CreationOptions::Default);
         cfg.get_global()
             .set_path("/export/home/myzone")
-            .set_autoboot(true);
+            .set_autoboot(true)
+            .set_ip_type(IpType::Shared); // See: https://www.illumos.org/issues/14033
         cfg.add_fs(&Fs {
             ty: "lofs".to_string(),
             dir: "/usr/local".to_string(),
