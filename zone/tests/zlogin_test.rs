@@ -13,6 +13,7 @@ const PFEXEC: &str = "/bin/pfexec";
 fn test_zlogin() {
     // Setup zfs pool for zone.
     zfs_zonetest_create();
+    let _unwind_zonetest_create = Defer::new(|| zfs_zonetest_destroy());
 
     let name = "zexec";
     let path = Path::new("/zonetest/zexec");
@@ -23,40 +24,25 @@ fn test_zlogin() {
         .set_path(path)
         .set_autoboot(true)
         .set_brand("sparse");
-    cfg.run().unwrap();
+    cfg.run()
+        .map_err(|e| format!("{}: try `pkg install brand/sparse`", e))
+        .unwrap();
+    let _unwind_config_create = Defer::new(||{ cfg.delete(true).run().unwrap(); });
 
-    // Install and boot zone, cleaning up on failure.
+    // Install and boot zone.
     let mut adm = Adm::new(name);
-    adm.install(&[]).unwrap_or_else(|e| {
-        cfg.delete(true).run().unwrap();
-        zfs_zonetest_destroy();
-        panic!("{}", e);
-    });
-    adm.boot().unwrap_or_else(|e| {
-        adm.uninstall(true).unwrap();
-        cfg.delete(true).run().unwrap();
-        zfs_zonetest_destroy();
-        panic!("{}", e);
-    });
+    adm.install(&[]).unwrap();
+    let _unwind_adm_install = Defer::new(||{ Adm::new(name).uninstall(true).unwrap(); });
+
+    adm.boot().unwrap();
+    let _unwind_adm_boot = Defer::new(||{ Adm::new(name).halt().unwrap(); });
 
     // Run the `hostname` command in the zone.
     let zlogin = Zlogin::new(name);
-    let out = zlogin.exec("hostname").unwrap_or_else(|e| {
-        adm.halt().unwrap();
-        adm.uninstall(true).unwrap();
-        cfg.delete(true).run().unwrap();
-        zfs_zonetest_destroy();
-        panic!("{}", e);
-    });
+    let out = zlogin.exec("hostname").unwrap();
 
     // Run a command that should fail in the zone.
     let bad_result = zlogin.exec("/usr/bin/notathing");
-
-    // Destroy the zone.
-    adm.halt().unwrap();
-    adm.uninstall(true).unwrap();
-    cfg.delete(true).run().unwrap();
-    zfs_zonetest_destroy();
 
     // Running `hostname` within the zone should yield the name of the zone.
     assert_eq!(out, "zexec");
@@ -94,4 +80,22 @@ fn zfs_zonetest_destroy() {
         .arg("rpool/zonetest")
         .output()
         .unwrap();
+}
+
+struct Defer<F: FnOnce() -> ()> {
+    func: Option<F>
+}
+
+impl<F: FnOnce() -> ()> Drop for Defer<F> {
+    fn drop(&mut self) {
+        (self.func.take().unwrap())()
+    }
+}
+
+impl<F: FnOnce() -> ()> Defer<F> {
+    fn new(func: F) -> Self {
+        Defer {
+            func: Some(func)
+        }
+    }
 }
