@@ -5,6 +5,7 @@
 //! - Entrypoint for `zonecfg`: [Config].
 //! - Entrypoint for `zoneadm`: [Adm].
 //! - Entrypoint for `zonename`: [current].
+//! - Entrypoint for `zlogin`: [Zlogin].
 
 use itertools::Itertools;
 use std::collections::BTreeSet;
@@ -19,6 +20,7 @@ const PFEXEC: &str = "/bin/pfexec";
 const ZONENAME: &str = "/usr/bin/zonename";
 const ZONEADM: &str = "/usr/sbin/zoneadm";
 const ZONECFG: &str = "/usr/sbin/zonecfg";
+const ZLOGIN: &str = "/usr/sbin/zlogin";
 
 /// The error type for parsing a bad status code while reading stdout.
 #[derive(Error, Debug)]
@@ -867,6 +869,34 @@ impl Adm {
     }
 }
 
+/// Entry point for `zlogin` commands.
+pub struct Zlogin {
+    /// Name of the zone.
+    name: String,
+}
+
+impl Zlogin {
+    /// Instantiate a new zlogin command.
+    pub fn new(name: impl AsRef<str>) -> Self {
+        Zlogin {
+            name: name.as_ref().into(),
+        }
+    }
+
+    /// Executes a command in the zone and returns the result.
+    pub fn exec(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
+        Ok(std::process::Command::new(PFEXEC)
+            .env_clear()
+            .arg(ZLOGIN)
+            .arg("-Q")
+            .arg(&self.name)
+            .arg(cmd)
+            .output()
+            .map_err(ZoneError::Command)?
+            .read_stdout()?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1006,7 +1036,8 @@ mod tests {
         let mut cfg = Config::create("myzone", true, CreationOptions::Default);
         cfg.get_global()
             .set_path("/export/home/myzone")
-            .set_autoboot(true);
+            .set_autoboot(true)
+            .set_ip_type(IpType::Shared); // See: https://www.illumos.org/issues/14033
         cfg.add_fs(&Fs {
             ty: "lofs".to_string(),
             dir: "/usr/local".to_string(),
@@ -1037,6 +1068,7 @@ mod tests {
         });
 
         cfg.run().unwrap();
+        cfg.delete(true).run().unwrap();
     }
 
     #[test]
@@ -1078,4 +1110,5 @@ mod tests {
             .find(|z| z.name() == name)
             .is_none());
     }
+
 }
