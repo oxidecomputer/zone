@@ -1,6 +1,6 @@
 extern crate proc_macro;
 
-use heck::{KebabCase, SnakeCase};
+use heck::{ToKebabCase, ToSnakeCase};
 use proc_macro_error::{abort, proc_macro_error, ResultExt};
 use quote::{format_ident, quote};
 use syn::{
