@@ -27,15 +27,21 @@ fn test_zlogin() {
     cfg.run()
         .map_err(|e| format!("{}: try `pkg install brand/sparse`", e))
         .unwrap();
-    let _unwind_config_create = Defer::new(||{ cfg.delete(true).run().unwrap(); });
+    let _unwind_config_create = Defer::new(|| {
+        cfg.delete(true).run().unwrap();
+    });
 
     // Install and boot zone.
     let mut adm = Adm::new(name);
     adm.install(&[]).unwrap();
-    let _unwind_adm_install = Defer::new(||{ Adm::new(name).uninstall(true).unwrap(); });
+    let _unwind_adm_install = Defer::new(|| {
+        Adm::new(name).uninstall(true).unwrap();
+    });
 
     adm.boot().unwrap();
-    let _unwind_adm_boot = Defer::new(||{ Adm::new(name).halt().unwrap(); });
+    let _unwind_adm_boot = Defer::new(|| {
+        Adm::new(name).halt().unwrap();
+    });
 
     // Run the `hostname` command in the zone.
     let zlogin = Zlogin::new(name);
@@ -83,7 +89,7 @@ fn zfs_zonetest_destroy() {
 }
 
 struct Defer<F: FnOnce() -> ()> {
-    func: Option<F>
+    func: Option<F>,
 }
 
 impl<F: FnOnce() -> ()> Drop for Defer<F> {
@@ -94,8 +100,6 @@ impl<F: FnOnce() -> ()> Drop for Defer<F> {
 
 impl<F: FnOnce() -> ()> Defer<F> {
     fn new(func: F) -> Self {
-        Defer {
-            func: Some(func)
-        }
+        Defer { func: Some(func) }
     }
 }

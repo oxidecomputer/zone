@@ -901,6 +901,7 @@ impl Zlogin {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "illumos")]
     #[test]
     fn test_current_zone() {
         let zone = current().unwrap();
@@ -1000,6 +1001,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "illumos")]
     #[test]
     fn test_cfg_global() {
         let mut cfg = Config::new("my-zone");
@@ -1031,6 +1033,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "illumos")]
     #[test]
     fn test_cfg_man_page_example() {
         let mut cfg = Config::create("myzone", true, CreationOptions::Default);
@@ -1071,6 +1074,7 @@ mod tests {
         cfg.delete(true).run().unwrap();
     }
 
+    #[cfg(target_os = "illumos")]
     #[test]
     fn test_list_global() {
         let zones = Adm::list().unwrap();
@@ -1082,6 +1086,7 @@ mod tests {
         assert_eq!(global.ip_type(), IpType::Shared);
     }
 
+    #[cfg(target_os = "illumos")]
     #[test]
     fn test_zone_lifecycle() {
         let name = "lifecycle";
@@ -1110,5 +1115,4 @@ mod tests {
             .find(|z| z.name() == name)
             .is_none());
     }
-
 }
