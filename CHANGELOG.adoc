@@ -1,0 +1,12 @@
+:showtitle:
+:toc: left
+:icons: font
+:toclevels: 1
+
+= Zone Changelog
+
+== 0.2.0 (released 2022-11-14)
+
+=== Breaking Changes
+
+* https://github.com/oxidecomputer/zone/pull/11[#11] Zone now uses the `sync` and `async` features. `sync` is the default, but either may be enabled. Deprecation notes provide instructions for how to update callsites.

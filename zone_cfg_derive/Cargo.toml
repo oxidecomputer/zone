@@ -1,6 +1,6 @@
 [package]
 name = "zone_cfg_derive"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Sean Klein <sean@oxide.computer>"]
 edition = "2018"
 repository = "https://github.com/oxidecomputer/zone"
