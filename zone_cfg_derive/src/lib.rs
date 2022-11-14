@@ -86,7 +86,7 @@ pub fn derive_resource(item: proc_macro::TokenStream) -> proc_macro::TokenStream
         This object represents the resource scope for a zone configuration, and
         automatically closes that scope when dropped.\n\n\
         To construct this object, refer to [Config::{}].",
-        input_name.to_string(),
+        input_name,
         if global_attrs.is_global_resource() {
             format!("get_{}", input_name.to_string().to_snake_case())
         } else {
@@ -168,8 +168,8 @@ fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro
                     "Generated selector for the [{}] resource.\n\n\
                     Allows the selection of an existing resource for modification
                     with a matching value of [{}::{}].",
-                    input_name.to_string(),
-                    input_name.to_string(),
+                    input_name,
+                    input_name,
                     parsed.field_name(),
                 );
 
@@ -178,8 +178,8 @@ fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro
                     "Generated removal function for the [{}] resource\n\n\
                     Allows the removal of all existing resources with a matching
                     value of [{}::{}].",
-                    input_name.to_string(),
-                    input_name.to_string(),
+                    input_name,
+                    input_name,
                     parsed.field_name(),
                 );
                 quote! {
@@ -260,7 +260,7 @@ fn constructor(
         let scope_get_msg = format!(
             "Acquire a reference to the global resource scope.
             This scope allows callers to safely set values within the [{}] object.",
-            input_name.to_string()
+            input_name
         );
         quote! {
             impl<'a> #scope_name<'a> {
@@ -285,13 +285,13 @@ fn constructor(
             "Creates a new scope from a [{}] object. This begins
             specification for the resource, and returns an object which
             represents the new scope.",
-            input_name.to_string()
+            input_name
         );
 
         let scope_removal = format_ident!("remove_all_{}", input_name_snake);
         let scope_removal_msg = format!(
             "Deletes resources associated with the [{}] object.",
-            input_name.to_string()
+            input_name
         );
 
         quote! {

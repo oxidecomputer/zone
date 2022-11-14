@@ -24,31 +24,31 @@ fn test_zlogin() {
         .set_path(path)
         .set_autoboot(true)
         .set_brand("sparse");
-    cfg.run()
+    cfg.run_blocking()
         .map_err(|e| format!("{}: try `pkg install brand/sparse`", e))
         .unwrap();
     let _unwind_config_create = Defer::new(|| {
-        cfg.delete(true).run().unwrap();
+        cfg.delete(true).run_blocking().unwrap();
     });
 
     // Install and boot zone.
     let mut adm = Adm::new(name);
-    adm.install(&[]).unwrap();
+    adm.install_blocking(&[]).unwrap();
     let _unwind_adm_install = Defer::new(|| {
-        Adm::new(name).uninstall(true).unwrap();
+        Adm::new(name).uninstall_blocking(true).unwrap();
     });
 
-    adm.boot().unwrap();
+    adm.boot_blocking().unwrap();
     let _unwind_adm_boot = Defer::new(|| {
-        Adm::new(name).halt().unwrap();
+        Adm::new(name).halt_blocking().unwrap();
     });
 
     // Run the `hostname` command in the zone.
     let zlogin = Zlogin::new(name);
-    let out = zlogin.exec("hostname").unwrap();
+    let out = zlogin.exec_blocking("hostname").unwrap();
 
     // Run a command that should fail in the zone.
-    let bad_result = zlogin.exec("/usr/bin/notathing");
+    let bad_result = zlogin.exec_blocking("/usr/bin/notathing");
 
     // Running `hostname` within the zone should yield the name of the zone.
     assert_eq!(out, "zexec");

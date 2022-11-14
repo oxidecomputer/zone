@@ -16,6 +16,12 @@ use std::string::ToString;
 use thiserror::Error;
 use zone_cfg_derive::Resource;
 
+#[cfg(all(feature = "sync", feature = "async"))]
+compile_error!(
+    "The 'sync' and 'async' features are currently mutually exclusive. \
+    This restriction may be lifted in the future."
+);
+
 const PFEXEC: &str = "/bin/pfexec";
 const ZONENAME: &str = "/usr/bin/zonename";
 const ZONEADM: &str = "/usr/sbin/zoneadm";
@@ -443,10 +449,10 @@ pub struct CappedCpu {
 
 /// Description of per-process security and exploit mitigation features.
 ///
-/// Context: https://illumos.org/man/5/security-flags
+/// Context: <https://illumos.org/man/5/security-flags>
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SecurityFlag {
-    /// Address SPace Layout Randomization.
+    /// Address Space Layout Randomization.
     Aslr,
     /// Mappings with an address of "zero" are forbidden.
     ForbidNullMap,
@@ -633,9 +639,18 @@ impl Config {
         self
     }
 
+    #[cfg(feature = "sync")]
+    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+        - Call 'run_blocking', to use the blocking variant, or \n\
+        - Call 'run' using the 'async' feature to call asynchronously.")]
+    pub fn run(&mut self) -> Result<String, ZoneError> {
+        self.run_blocking()
+    }
+
     /// Executes the queued commands for the zone, and clears the
     /// current queued arguments.
-    pub fn run(&mut self) -> Result<String, ZoneError> {
+    #[cfg(feature = "sync")]
+    pub fn run_blocking(&mut self) -> Result<String, ZoneError> {
         let separator = ";".to_string();
         let args = Itertools::intersperse(self.args.iter(), &separator);
 
@@ -651,13 +666,51 @@ impl Config {
         self.args.clear();
         Ok(out)
     }
+
+    #[cfg(feature = "async")]
+    pub async fn run(&mut self) -> Result<String, ZoneError> {
+        let separator = ";".to_string();
+        let args = Itertools::intersperse(self.args.iter(), &separator);
+
+        let out = tokio::process::Command::new(PFEXEC)
+            .env_clear()
+            .arg(ZONECFG)
+            .arg("-z")
+            .arg(&self.name)
+            .args(args)
+            .output()
+            .await
+            .map_err(ZoneError::Command)?
+            .read_stdout()?;
+        self.args.clear();
+        Ok(out)
+    }
+}
+/// Returns the name of the current zone, if one exists.
+#[cfg(feature = "sync")]
+#[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+    - Call 'current_blocking', to use the blocking variant, or \n\
+    - Call 'current' using the 'async' feature to call asynchronously.")]
+pub fn current() -> Result<String, ZoneError> {
+    current_blocking()
 }
 
 /// Returns the name of the current zone, if one exists.
-pub fn current() -> Result<String, ZoneError> {
+#[cfg(feature = "sync")]
+pub fn current_blocking() -> Result<String, ZoneError> {
     Ok(std::process::Command::new(ZONENAME)
         .env_clear()
         .output()
+        .map_err(ZoneError::Command)?
+        .read_stdout()?)
+}
+
+#[cfg(feature = "async")]
+pub async fn current() -> Result<String, ZoneError> {
+    Ok(tokio::process::Command::new(ZONENAME)
+        .env_clear()
+        .output()
+        .await
         .map_err(ZoneError::Command)?
         .read_stdout()?)
 }
@@ -800,49 +853,167 @@ impl Adm {
         }
     }
 
-    /// Boots (or activates) the zone.
+    #[cfg(feature = "sync")]
+    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+        - Call 'boot_blocking', to use the blocking variant, or \n\
+        - Call 'boot' using the 'async' feature to call asynchronously.")]
     pub fn boot(&mut self) -> Result<String, ZoneError> {
-        self.run(&["boot"])
+        self.boot_blocking()
+    }
+
+    /// Boots (or activates) the zone.
+    #[cfg(feature = "sync")]
+    pub fn boot_blocking(&mut self) -> Result<String, ZoneError> {
+        self.run_blocking(&["boot"])
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn boot(&mut self) -> Result<String, ZoneError> {
+        self.run(&["boot"]).await
+    }
+
+    #[cfg(feature = "sync")]
+    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+        - Call 'clone_blocking', to use the blocking variant, or \n\
+        - Call 'clone' using the 'async' feature to call asynchronously.")]
+    pub fn clone(&mut self, source: impl AsRef<OsStr>) -> Result<String, ZoneError> {
+        self.clone_blocking(source)
     }
 
     /// Installs a zone by copying an existing installed zone.
-    pub fn clone(&mut self, source: impl AsRef<OsStr>) -> Result<String, ZoneError> {
-        self.run(&[OsStr::new("clone"), source.as_ref()])
+    #[cfg(feature = "sync")]
+    pub fn clone_blocking(&mut self, source: impl AsRef<OsStr>) -> Result<String, ZoneError> {
+        self.run_blocking(&[OsStr::new("clone"), source.as_ref()])
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn clone(&mut self, source: impl AsRef<OsStr>) -> Result<String, ZoneError> {
+        self.run(&[OsStr::new("clone"), source.as_ref()]).await
+    }
+
+    #[cfg(feature = "sync")]
+    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+        - Call 'halt_blocking', to use the blocking variant, or \n\
+        - Call 'halt' using the 'async' feature to call asynchronously.")]
+    pub fn halt(&mut self) -> Result<String, ZoneError> {
+        self.halt_blocking()
     }
 
     /// Halts the specified zone.
-    pub fn halt(&mut self) -> Result<String, ZoneError> {
-        self.run(&["halt"])
+    #[cfg(feature = "sync")]
+    pub fn halt_blocking(&mut self) -> Result<String, ZoneError> {
+        self.run_blocking(&["halt"])
     }
 
-    // TODO: Not documented in manpage, but apparently this exists.
+    #[cfg(feature = "async")]
+    pub async fn halt(&mut self) -> Result<String, ZoneError> {
+        self.run(&["halt"]).await
+    }
+
+    #[cfg(feature = "sync")]
+    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+        - Call 'mount_blocking', to use the blocking variant, or \n\
+        - Call 'mount' using the 'async' feature to call asynchronously.")]
     pub fn mount(&mut self) -> Result<String, ZoneError> {
-        self.run(&["mount"])
+        self.mount_blocking()
     }
 
     // TODO: Not documented in manpage, but apparently this exists.
+    #[cfg(feature = "sync")]
+    pub fn mount_blocking(&mut self) -> Result<String, ZoneError> {
+        self.run_blocking(&["mount"])
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn mount(&mut self) -> Result<String, ZoneError> {
+        self.run(&["mount"]).await
+    }
+
+    #[cfg(feature = "sync")]
+    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+        - Call 'unmount_blocking', to use the blocking variant, or \n\
+        - Call 'unmount' using the 'async' feature to call asynchronously.")]
     pub fn unmount(&mut self) -> Result<String, ZoneError> {
-        self.run(&["unmount"])
+        self.unmount_blocking()
+    }
+
+    // TODO: Not documented in manpage, but apparently this exists.
+    #[cfg(feature = "sync")]
+    pub fn unmount_blocking(&mut self) -> Result<String, ZoneError> {
+        self.run_blocking(&["unmount"])
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn unmount(&mut self) -> Result<String, ZoneError> {
+        self.run(&["unmount"]).await
+    }
+
+    #[cfg(feature = "sync")]
+    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+        - Call 'install_blocking', to use the blocking variant, or \n\
+        - Call 'install' using the 'async' feature to call asynchronously.")]
+    pub fn install(&mut self, brand_specific_options: &[&OsStr]) -> Result<String, ZoneError> {
+        self.install_blocking(brand_specific_options)
     }
 
     /// Install the specified zone on the system.
-    pub fn install(&mut self, brand_specific_options: &[&OsStr]) -> Result<String, ZoneError> {
+    #[cfg(feature = "sync")]
+    pub fn install_blocking(
+        &mut self,
+        brand_specific_options: &[&OsStr],
+    ) -> Result<String, ZoneError> {
         let command = &[OsStr::new("install")];
-        self.run([command, brand_specific_options].concat())
+        self.run_blocking([command, brand_specific_options].concat())
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn install(
+        &mut self,
+        brand_specific_options: &[&OsStr],
+    ) -> Result<String, ZoneError> {
+        let command = &[OsStr::new("install")];
+        self.run([command, brand_specific_options].concat()).await
+    }
+
+    #[cfg(feature = "sync")]
+    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+        - Call 'uninstall_blocking', to use the blocking variant, or \n\
+        - Call 'uninstall' using the 'async' feature to call asynchronously.")]
+    pub fn uninstall(&mut self, force: bool) -> Result<String, ZoneError> {
+        self.uninstall_blocking(force)
     }
 
     /// Uninstalls the zone from the system.
-    pub fn uninstall(&mut self, force: bool) -> Result<String, ZoneError> {
+    #[cfg(feature = "sync")]
+    pub fn uninstall_blocking(&mut self, force: bool) -> Result<String, ZoneError> {
         let mut args = vec!["uninstall"];
         if force {
             args.push("-F");
         }
-        self.run(&args)
+        self.run_blocking(&args)
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn uninstall(&mut self, force: bool) -> Result<String, ZoneError> {
+        let mut args = vec!["uninstall"];
+        if force {
+            args.push("-F");
+        }
+        self.run(&args).await
+    }
+
+    #[cfg(feature = "sync")]
+    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+        - Call 'list_blocking', to use the blocking variant, or \n\
+        - Call 'list' using the 'async' feature to call asynchronously.")]
+    pub fn list() -> Result<Vec<Zone>, ZoneError> {
+        Self::list_blocking()
     }
 
     /// List all zones.
-    pub fn list() -> Result<Vec<Zone>, ZoneError> {
-        Ok(std::process::Command::new(PFEXEC)
+    #[cfg(feature = "sync")]
+    pub fn list_blocking() -> Result<Vec<Zone>, ZoneError> {
+        std::process::Command::new(PFEXEC)
             .env_clear()
             .arg(ZONEADM)
             .arg("list")
@@ -852,10 +1023,30 @@ impl Adm {
             .read_stdout()?
             .split('\n')
             .map(|s| s.parse::<Zone>())
-            .collect::<Result<Vec<Zone>, _>>()?)
+            .collect::<Result<Vec<Zone>, _>>()
     }
 
-    fn run(&self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<String, ZoneError> {
+    #[cfg(feature = "async")]
+    pub async fn list() -> Result<Vec<Zone>, ZoneError> {
+        tokio::process::Command::new(PFEXEC)
+            .env_clear()
+            .arg(ZONEADM)
+            .arg("list")
+            .arg("-cip")
+            .output()
+            .await
+            .map_err(ZoneError::Command)?
+            .read_stdout()?
+            .split('\n')
+            .map(|s| s.parse::<Zone>())
+            .collect::<Result<Vec<Zone>, _>>()
+    }
+
+    #[cfg(feature = "sync")]
+    fn run_blocking(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    ) -> Result<String, ZoneError> {
         let out = std::process::Command::new(PFEXEC)
             .env_clear()
             .arg(ZONEADM)
@@ -863,6 +1054,24 @@ impl Adm {
             .arg(&self.name)
             .args(args)
             .output()
+            .map_err(ZoneError::Command)?
+            .read_stdout()?;
+        Ok(out)
+    }
+
+    #[cfg(feature = "async")]
+    async fn run(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    ) -> Result<String, ZoneError> {
+        let out = tokio::process::Command::new(PFEXEC)
+            .env_clear()
+            .arg(ZONEADM)
+            .arg("-z")
+            .arg(&self.name)
+            .args(args)
+            .output()
+            .await
             .map_err(ZoneError::Command)?
             .read_stdout()?;
         Ok(out)
@@ -883,8 +1092,17 @@ impl Zlogin {
         }
     }
 
-    /// Executes a command in the zone and returns the result.
+    #[cfg(feature = "sync")]
+    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
+        - Call 'exec_blocking', to use the blocking variant, or \n\
+        - Call 'exec' using the 'async' feature to call asynchronously.")]
     pub fn exec(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
+        self.exec_blocking(cmd)
+    }
+
+    /// Executes a command in the zone and returns the result.
+    #[cfg(feature = "sync")]
+    pub fn exec_blocking(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
         Ok(std::process::Command::new(PFEXEC)
             .env_clear()
             .arg(ZLOGIN)
@@ -892,6 +1110,20 @@ impl Zlogin {
             .arg(&self.name)
             .arg(cmd)
             .output()
+            .map_err(ZoneError::Command)?
+            .read_stdout()?)
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn exec(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
+        Ok(tokio::process::Command::new(PFEXEC)
+            .env_clear()
+            .arg(ZLOGIN)
+            .arg("-Q")
+            .arg(&self.name)
+            .arg(cmd)
+            .output()
+            .await
             .map_err(ZoneError::Command)?
             .read_stdout()?)
     }
