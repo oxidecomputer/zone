@@ -1113,7 +1113,7 @@ mod tests {
     #[cfg(target_os = "illumos")]
     #[test]
     fn test_current_zone() {
-        let zone = current().unwrap();
+        let zone = current_blocking().unwrap();
         assert_eq!("global", zone);
     }
 
@@ -1279,14 +1279,14 @@ mod tests {
             ..Default::default()
         });
 
-        cfg.run().unwrap();
-        cfg.delete(true).run().unwrap();
+        cfg.run_blocking().unwrap();
+        cfg.delete(true).run_blocking().unwrap();
     }
 
     #[cfg(target_os = "illumos")]
     #[test]
     fn test_list_global() {
-        let zones = Adm::list().unwrap();
+        let zones = Adm::list_blocking().unwrap();
 
         let global = zones.iter().find(|zone| zone.global()).unwrap();
 
@@ -1304,10 +1304,10 @@ mod tests {
         // Create a zone.
         let mut cfg = Config::create(name, true, CreationOptions::Default);
         cfg.get_global().set_path(path).set_autoboot(true);
-        cfg.run().unwrap();
+        cfg.run_blocking().unwrap();
 
         // Observe that the zone exists.
-        let zone = Adm::list()
+        let zone = Adm::list_blocking()
             .unwrap()
             .into_iter()
             .find(|z| z.name() == name)
@@ -1315,10 +1315,10 @@ mod tests {
         assert_eq!(zone.path(), path);
 
         // Destroy the zone
-        cfg.delete(true).run().unwrap();
+        cfg.delete(true).run_blocking().unwrap();
 
         // Observe the zone does not exist
-        assert!(Adm::list()
+        assert!(Adm::list_blocking()
             .unwrap()
             .into_iter()
             .find(|z| z.name() == name)
