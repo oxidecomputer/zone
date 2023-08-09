@@ -532,7 +532,7 @@ pub struct Admin {
 /// });
 ///
 /// // Issues the previously enqueued operations to zonecfg.
-/// cfg.run().unwrap();
+/// cfg.run_blocking().unwrap();
 /// ```
 ///
 /// ## Selection and modification of an existing zone.
@@ -550,7 +550,7 @@ pub struct Admin {
 /// cfg.remove_all_capped_memory();
 ///
 /// // Issues the previously enqueued operations to zonecfg.
-/// cfg.run().unwrap();
+/// cfg.run_blocking().unwrap();
 /// ```
 pub struct Config {
     /// Name of the zone.
