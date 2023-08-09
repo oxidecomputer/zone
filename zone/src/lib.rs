@@ -11,6 +11,7 @@ use itertools::Itertools;
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 use std::str::FromStr;
 use std::string::ToString;
 use thiserror::Error;
@@ -633,60 +634,69 @@ impl Config {
         self
     }
 
+    /// Creates a [Command] which can be executed to send the queued
+    /// command to the host.
+    ///
+    /// Addiitonally, clears the previously queued arguments.
+    pub fn as_command(&mut self) -> Command {
+        let separator = ";".to_string();
+        let args = Itertools::intersperse(self.args.iter(), &separator);
+        let mut cmd = std::process::Command::new(PFEXEC);
+
+        cmd.env_clear()
+            .arg(ZONECFG)
+            .arg("-z")
+            .arg(&self.name)
+            .args(args);
+
+        self.args.clear();
+        cmd
+    }
+
+    /// Parses the output from a command which was emitted from
+    /// [Self::as_command].
+    pub fn parse_output(output: &Output) -> Result<String, ZoneError> {
+        let out = output.read_stdout()?;
+        Ok(out)
+    }
+
     /// Executes the queued commands for the zone, and clears the
     /// current queued arguments.
     #[cfg(feature = "sync")]
     pub fn run_blocking(&mut self) -> Result<String, ZoneError> {
-        let separator = ";".to_string();
-        let args = Itertools::intersperse(self.args.iter(), &separator);
-
-        let out = std::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONECFG)
-            .arg("-z")
-            .arg(&self.name)
-            .args(args)
-            .output()
-            .map_err(ZoneError::Command)?
-            .read_stdout()?;
-        self.args.clear();
-        Ok(out)
+        let output = self.as_command().output().map_err(ZoneError::Command)?;
+        Self::parse_output(&output)
     }
 
     #[cfg(feature = "async")]
     pub async fn run(&mut self) -> Result<String, ZoneError> {
-        let separator = ";".to_string();
-        let args = Itertools::intersperse(self.args.iter(), &separator);
-
-        let out = tokio::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONECFG)
-            .arg("-z")
-            .arg(&self.name)
-            .args(args)
+        let output = tokio::process::Command::from(self.as_command())
             .output()
             .await
-            .map_err(ZoneError::Command)?
-            .read_stdout()?;
-        self.args.clear();
-        Ok(out)
+            .map_err(ZoneError::Command)?;
+        Self::parse_output(&output)
     }
+}
+
+pub fn current_command() -> Command {
+    let mut cmd = std::process::Command::new(ZONENAME);
+    cmd.env_clear();
+    cmd
 }
 
 /// Returns the name of the current zone, if one exists.
 #[cfg(feature = "sync")]
 pub fn current_blocking() -> Result<String, ZoneError> {
-    Ok(std::process::Command::new(ZONENAME)
-        .env_clear()
+    Ok(current_command()
         .output()
         .map_err(ZoneError::Command)?
         .read_stdout()?)
 }
 
+/// Returns the name of the current zone, if one exists.
 #[cfg(feature = "async")]
 pub async fn current() -> Result<String, ZoneError> {
-    Ok(tokio::process::Command::new(ZONENAME)
-        .env_clear()
+    Ok(tokio::process::Command::from(current_command())
         .output()
         .await
         .map_err(ZoneError::Command)?
@@ -831,6 +841,14 @@ impl Adm {
         }
     }
 
+    pub fn boot_command(&mut self) -> Command {
+        self.as_command(&["boot"])
+    }
+
+    pub fn parse_boot_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
+    }
+
     /// Boots (or activates) the zone.
     #[cfg(feature = "sync")]
     pub fn boot_blocking(&mut self) -> Result<String, ZoneError> {
@@ -840,6 +858,14 @@ impl Adm {
     #[cfg(feature = "async")]
     pub async fn boot(&mut self) -> Result<String, ZoneError> {
         self.run(&["boot"]).await
+    }
+
+    pub fn clone_command(&mut self, source: impl AsRef<OsStr>) -> Command {
+        self.as_command(&[OsStr::new("clone"), source.as_ref()])
+    }
+
+    pub fn parse_clone_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
     }
 
     /// Installs a zone by copying an existing installed zone.
@@ -853,6 +879,14 @@ impl Adm {
         self.run(&[OsStr::new("clone"), source.as_ref()]).await
     }
 
+    pub fn halt_command(&mut self) -> Command {
+        self.as_command(&["halt"])
+    }
+
+    pub fn parse_halt_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
+    }
+
     /// Halts the specified zone.
     #[cfg(feature = "sync")]
     pub fn halt_blocking(&mut self) -> Result<String, ZoneError> {
@@ -862,6 +896,14 @@ impl Adm {
     #[cfg(feature = "async")]
     pub async fn halt(&mut self) -> Result<String, ZoneError> {
         self.run(&["halt"]).await
+    }
+
+    pub fn mount_command(&mut self) -> Command {
+        self.as_command(&["mount"])
+    }
+
+    pub fn parse_mount_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
     }
 
     // TODO: Not documented in manpage, but apparently this exists.
@@ -875,6 +917,14 @@ impl Adm {
         self.run(&["mount"]).await
     }
 
+    pub fn unmount_command(&mut self) -> Command {
+        self.as_command(&["unmount"])
+    }
+
+    pub fn parse_unmount_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
+    }
+
     // TODO: Not documented in manpage, but apparently this exists.
     #[cfg(feature = "sync")]
     pub fn unmount_blocking(&mut self) -> Result<String, ZoneError> {
@@ -884,6 +934,15 @@ impl Adm {
     #[cfg(feature = "async")]
     pub async fn unmount(&mut self) -> Result<String, ZoneError> {
         self.run(&["unmount"]).await
+    }
+
+    pub fn install_command(&mut self, brand_specific_options: &[&OsStr]) -> Command {
+        let command = &[OsStr::new("install")];
+        self.as_command([command, brand_specific_options].concat())
+    }
+
+    pub fn parse_install_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
     }
 
     /// Install the specified zone on the system.
@@ -905,6 +964,18 @@ impl Adm {
         self.run([command, brand_specific_options].concat()).await
     }
 
+    pub fn uninstall_command(&mut self, force: bool) -> Command {
+        let mut args = vec!["uninstall"];
+        if force {
+            args.push("-F");
+        }
+        self.as_command(&args)
+    }
+
+    pub fn parse_uninstall_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
+    }
+
     /// Uninstalls the zone from the system.
     #[cfg(feature = "sync")]
     pub fn uninstall_blocking(&mut self, force: bool) -> Result<String, ZoneError> {
@@ -924,36 +995,44 @@ impl Adm {
         self.run(&args).await
     }
 
-    /// List all zones.
-    #[cfg(feature = "sync")]
-    pub fn list_blocking() -> Result<Vec<Zone>, ZoneError> {
-        std::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONEADM)
-            .arg("list")
-            .arg("-cip")
-            .output()
-            .map_err(ZoneError::Command)?
+    pub fn list_command() -> Command {
+        let mut cmd = std::process::Command::new(PFEXEC);
+        cmd.env_clear().arg(ZONEADM).arg("list").arg("-cip");
+        cmd
+    }
+
+    pub fn parse_list_output(output: &Output) -> Result<Vec<Zone>, ZoneError> {
+        output
             .read_stdout()?
             .split('\n')
             .map(|s| s.parse::<Zone>())
             .collect::<Result<Vec<Zone>, _>>()
     }
 
+    /// List all zones.
+    #[cfg(feature = "sync")]
+    pub fn list_blocking() -> Result<Vec<Zone>, ZoneError> {
+        let output = Self::list_command().output().map_err(ZoneError::Command)?;
+        Self::parse_list_output(&output)
+    }
+
     #[cfg(feature = "async")]
     pub async fn list() -> Result<Vec<Zone>, ZoneError> {
-        tokio::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONEADM)
-            .arg("list")
-            .arg("-cip")
+        let output = tokio::process::Command::from(Self::list_command())
             .output()
             .await
-            .map_err(ZoneError::Command)?
-            .read_stdout()?
-            .split('\n')
-            .map(|s| s.parse::<Zone>())
-            .collect::<Result<Vec<Zone>, _>>()
+            .map_err(ZoneError::Command)?;
+        Self::parse_list_output(&output)
+    }
+
+    fn as_command(&self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Command {
+        let mut cmd = std::process::Command::new(PFEXEC);
+        cmd.env_clear()
+            .arg(ZONEADM)
+            .arg("-z")
+            .arg(&self.name)
+            .args(args);
+        cmd
     }
 
     #[cfg(feature = "sync")]
@@ -961,12 +1040,8 @@ impl Adm {
         &self,
         args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     ) -> Result<String, ZoneError> {
-        let out = std::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONEADM)
-            .arg("-z")
-            .arg(&self.name)
-            .args(args)
+        let out = self
+            .as_command(args)
             .output()
             .map_err(ZoneError::Command)?
             .read_stdout()?;
@@ -978,12 +1053,7 @@ impl Adm {
         &self,
         args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     ) -> Result<String, ZoneError> {
-        let out = tokio::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONEADM)
-            .arg("-z")
-            .arg(&self.name)
-            .args(args)
+        let out = tokio::process::Command::from(self.as_command(args))
             .output()
             .await
             .map_err(ZoneError::Command)?
@@ -1006,15 +1076,21 @@ impl Zlogin {
         }
     }
 
-    /// Executes a command in the zone and returns the result.
-    #[cfg(feature = "sync")]
-    pub fn exec_blocking(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
-        Ok(std::process::Command::new(PFEXEC)
-            .env_clear()
+    pub fn as_command(&self, cmds: impl AsRef<OsStr>) -> Command {
+        let mut cmd = std::process::Command::new(PFEXEC);
+        cmd.env_clear()
             .arg(ZLOGIN)
             .arg("-Q")
             .arg(&self.name)
-            .arg(cmd)
+            .arg(cmds);
+        cmd
+    }
+
+    /// Executes a command in the zone and returns the result.
+    #[cfg(feature = "sync")]
+    pub fn exec_blocking(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
+        Ok(self
+            .as_command(cmd)
             .output()
             .map_err(ZoneError::Command)?
             .read_stdout()?)
@@ -1022,12 +1098,7 @@ impl Zlogin {
 
     #[cfg(feature = "async")]
     pub async fn exec(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
-        Ok(tokio::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZLOGIN)
-            .arg("-Q")
-            .arg(&self.name)
-            .arg(cmd)
+        Ok(tokio::process::Command::from(self.as_command(cmd))
             .output()
             .await
             .map_err(ZoneError::Command)?
