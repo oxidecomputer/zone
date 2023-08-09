@@ -17,7 +17,7 @@ use std::string::ToString;
 use thiserror::Error;
 use zone_cfg_derive::Resource;
 
-const PFEXEC: &str = "/bin/pfexec";
+const PFEXEC: &str = "/usr/bin/pfexec";
 const ZONENAME: &str = "/usr/bin/zonename";
 const ZONEADM: &str = "/usr/sbin/zoneadm";
 const ZONECFG: &str = "/usr/sbin/zonecfg";
@@ -597,22 +597,24 @@ impl Config {
     /// This method does not execute `zonecfg` until [`Config::run`]
     /// is invoked.
     pub fn create(name: impl AsRef<str>, overwrite: bool, options: CreationOptions) -> Self {
-        let overwrite_flag = if overwrite {
-            "-F".to_string()
-        } else {
-            "".to_string()
+        let mut cfg = Self::new(name);
+        cfg.push("create");
+        if overwrite {
+            cfg.push("-F");
         };
-        let options = match options {
+        match options {
             CreationOptions::FromDetached(path) => {
-                format!("-a {}", path.into_os_string().to_string_lossy())
+                cfg.push("-a");
+                cfg.push(path.into_os_string().to_string_lossy());
             }
-            CreationOptions::Blank => "-b".to_string(),
-            CreationOptions::Default => "".to_string(),
-            CreationOptions::Template(zone) => format!("-t {}", zone),
+            CreationOptions::Blank => cfg.push("-b"),
+            CreationOptions::Default => (),
+            CreationOptions::Template(zone) => {
+                cfg.push("-t");
+                cfg.push(zone);
+            }
         };
 
-        let mut cfg = Self::new(name);
-        cfg.push(format!("create {} {}", overwrite_flag, options));
         cfg
     }
 
@@ -621,7 +623,9 @@ impl Config {
     /// This method does not execute `zonecfg` until [`Config::run`]
     /// is invoked.
     pub fn export(&mut self, p: impl AsRef<Path>) -> &mut Self {
-        self.push(format!("export -f {}", p.as_ref().to_string_lossy()));
+        self.push("export");
+        self.push("-f");
+        self.push(p.as_ref().to_string_lossy());
         self
     }
 
@@ -630,7 +634,10 @@ impl Config {
     /// This method does not execute `zonecfg` until [`Config::run`]
     /// is invoked.
     pub fn delete(&mut self, force: bool) -> &mut Self {
-        self.push(format!("delete {}", if force { "-F" } else { "" }));
+        self.push("delete");
+        if force {
+            self.push("-F");
+        }
         self
     }
 
@@ -1141,18 +1148,27 @@ mod tests {
             cfg.args,
             &[
                 // Initial resource creation.
-                "add fs",
-                "set type=my-type",
-                "set dir=/path/to/dir",
-                "set special=/path/to/special",
-                "set options=[]",
+                "add",
+                "fs",
+                "set",
+                "type=my-type",
+                "set",
+                "dir=/path/to/dir",
+                "set",
+                "special=/path/to/special",
+                "set",
+                "options=[]",
                 // Set mandatory field.
-                "set dir=/path/to/other/dir",
+                "set",
+                "dir=/path/to/other/dir",
                 // Clear and set optional fied.
-                "clear raw",
-                "set raw=/raw",
+                "clear",
+                "raw",
+                "set",
+                "raw=/raw",
                 // Set a list field.
-                "set options=[abc,def]",
+                "set",
+                "options=[abc,def]",
                 "end"
             ]
         );
@@ -1172,10 +1188,14 @@ mod tests {
         assert_eq!(
             cfg.args,
             &[
-                "add attr",
-                "set name=my-attr",
-                "set type=uint",
-                "set value=10",
+                "add",
+                "attr",
+                "set",
+                "name=my-attr",
+                "set",
+                "type=uint",
+                "set",
+                "value=10",
                 "end"
             ]
         );
@@ -1202,9 +1222,12 @@ mod tests {
         assert_eq!(
             cfg.args,
             &[
-                "add security-flags",
-                "set default=ASLR,FORBIDNULLMAP",
-                "set lower=ASLR",
+                "add",
+                "security-flags",
+                "set",
+                "default=ASLR,FORBIDNULLMAP",
+                "set",
+                "lower=ASLR",
                 "end"
             ]
         );
@@ -1231,13 +1254,20 @@ mod tests {
         assert_eq!(
             cfg.args,
             &[
-                "set zonename=my-new-zone",
-                "set autoboot=false",
-                "clear limitpriv",
-                "set fs-allowed=pcfs,ufs",
-                "set pool=my-pool",
-                "clear pool",
-                "set ip-type=exclusive",
+                "set",
+                "zonename=my-new-zone",
+                "set",
+                "autoboot=false",
+                "clear",
+                "limitpriv",
+                "set",
+                "fs-allowed=pcfs,ufs",
+                "set",
+                "pool=my-pool",
+                "clear",
+                "pool",
+                "set",
+                "ip-type=exclusive",
             ]
         );
     }

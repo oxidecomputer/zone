@@ -136,14 +136,16 @@ fn setters(scope_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro2:
                                 PropertyName::Implicit => #name,
                                 PropertyName::Explicit(name) => name,
                             };
-                            self.push(format!("set {}={}", name, property.value));
+                            self.push("set");
+                            self.push(format!("{}={}", name, property.value));
                         }
                         for property_name in value.get_clearables() {
                             let name = match &property_name {
                                 PropertyName::Implicit => #name,
                                 PropertyName::Explicit(name) => name,
                             };
-                            self.push(format!("clear {}", name));
+                            self.push("clear");
+                            self.push(name);
                         }
                         self
                     }
@@ -190,9 +192,10 @@ fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro
                             let mut scope = #scope_name {
                                 config: self
                             };
+                            scope.push("select");
+                            scope.push(#input_name_kebab);
                             scope.push(
-                                format!("select {} {}={}",
-                                    #input_name_kebab,
+                                format!("{}={}",
                                     #name,
                                     value,
                                 )
@@ -203,10 +206,12 @@ fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro
                         #[doc = #remover_msg]
                         pub fn #remover(&mut self, value: impl Into<#ty>) {
                             let value: #ty = value.into();
+                            self.push("remove");
+                            self.push("-F");
+                            self.push(#input_name_kebab);
                             self.push(
                                 format!(
-                                    "remove -F {} {}={}",
-                                    #input_name_kebab,
+                                    "{}={}",
                                     #name,
                                     value,
                                 )
@@ -249,7 +254,8 @@ fn constructor(
                         PropertyName::Implicit => #name,
                         PropertyName::Explicit(name) => name,
                     };
-                    scope.push(format!("set {}={}", name, property.value));
+                    scope.push("set");
+                    scope.push(format!("{}={}", name, property.value));
                 }
             }
         })
@@ -310,14 +316,17 @@ fn constructor(
                         config: self
                     };
 
-                    scope.push(format!("add {}", #input_name_kebab));
+                    scope.push("add");
+                    scope.push(#input_name_kebab);
                     #initial_set_values
                     scope
                 }
 
                 #[doc = #scope_removal_msg]
                 pub fn #scope_removal(&mut self) {
-                    self.push(format!("remove -F {}", #input_name_kebab));
+                    self.push("remove");
+                    self.push("-F");
+                    self.push(#input_name_kebab);
                 }
             }
         }
