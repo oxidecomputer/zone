@@ -3,7 +3,7 @@
 use std::path::Path;
 use zone::{Adm, Config, CreationOptions, Zlogin};
 
-const PFEXEC: &str = "/usr/bin/pfexec";
+const PFEXEC: &str = "/bin/pfexec";
 
 // This test is marked with ignore because it involves booting a newly created
 // zone which can take over a minute. This test assumes that the sparse brand is
