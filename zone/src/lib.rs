@@ -16,12 +16,6 @@ use std::string::ToString;
 use thiserror::Error;
 use zone_cfg_derive::Resource;
 
-#[cfg(all(feature = "sync", feature = "async"))]
-compile_error!(
-    "The 'sync' and 'async' features are currently mutually exclusive. \
-    This restriction may be lifted in the future."
-);
-
 const PFEXEC: &str = "/bin/pfexec";
 const ZONENAME: &str = "/usr/bin/zonename";
 const ZONEADM: &str = "/usr/sbin/zoneadm";
@@ -639,14 +633,6 @@ impl Config {
         self
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'run_blocking', to use the blocking variant, or \n\
-        - Call 'run' using the 'async' feature to call asynchronously.")]
-    pub fn run(&mut self) -> Result<String, ZoneError> {
-        self.run_blocking()
-    }
-
     /// Executes the queued commands for the zone, and clears the
     /// current queued arguments.
     #[cfg(feature = "sync")]
@@ -685,14 +671,6 @@ impl Config {
         self.args.clear();
         Ok(out)
     }
-}
-/// Returns the name of the current zone, if one exists.
-#[cfg(feature = "sync")]
-#[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-    - Call 'current_blocking', to use the blocking variant, or \n\
-    - Call 'current' using the 'async' feature to call asynchronously.")]
-pub fn current() -> Result<String, ZoneError> {
-    current_blocking()
 }
 
 /// Returns the name of the current zone, if one exists.
@@ -853,14 +831,6 @@ impl Adm {
         }
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'boot_blocking', to use the blocking variant, or \n\
-        - Call 'boot' using the 'async' feature to call asynchronously.")]
-    pub fn boot(&mut self) -> Result<String, ZoneError> {
-        self.boot_blocking()
-    }
-
     /// Boots (or activates) the zone.
     #[cfg(feature = "sync")]
     pub fn boot_blocking(&mut self) -> Result<String, ZoneError> {
@@ -870,14 +840,6 @@ impl Adm {
     #[cfg(feature = "async")]
     pub async fn boot(&mut self) -> Result<String, ZoneError> {
         self.run(&["boot"]).await
-    }
-
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'clone_blocking', to use the blocking variant, or \n\
-        - Call 'clone' using the 'async' feature to call asynchronously.")]
-    pub fn clone(&mut self, source: impl AsRef<OsStr>) -> Result<String, ZoneError> {
-        self.clone_blocking(source)
     }
 
     /// Installs a zone by copying an existing installed zone.
@@ -891,14 +853,6 @@ impl Adm {
         self.run(&[OsStr::new("clone"), source.as_ref()]).await
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'halt_blocking', to use the blocking variant, or \n\
-        - Call 'halt' using the 'async' feature to call asynchronously.")]
-    pub fn halt(&mut self) -> Result<String, ZoneError> {
-        self.halt_blocking()
-    }
-
     /// Halts the specified zone.
     #[cfg(feature = "sync")]
     pub fn halt_blocking(&mut self) -> Result<String, ZoneError> {
@@ -908,14 +862,6 @@ impl Adm {
     #[cfg(feature = "async")]
     pub async fn halt(&mut self) -> Result<String, ZoneError> {
         self.run(&["halt"]).await
-    }
-
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'mount_blocking', to use the blocking variant, or \n\
-        - Call 'mount' using the 'async' feature to call asynchronously.")]
-    pub fn mount(&mut self) -> Result<String, ZoneError> {
-        self.mount_blocking()
     }
 
     // TODO: Not documented in manpage, but apparently this exists.
@@ -929,14 +875,6 @@ impl Adm {
         self.run(&["mount"]).await
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'unmount_blocking', to use the blocking variant, or \n\
-        - Call 'unmount' using the 'async' feature to call asynchronously.")]
-    pub fn unmount(&mut self) -> Result<String, ZoneError> {
-        self.unmount_blocking()
-    }
-
     // TODO: Not documented in manpage, but apparently this exists.
     #[cfg(feature = "sync")]
     pub fn unmount_blocking(&mut self) -> Result<String, ZoneError> {
@@ -946,14 +884,6 @@ impl Adm {
     #[cfg(feature = "async")]
     pub async fn unmount(&mut self) -> Result<String, ZoneError> {
         self.run(&["unmount"]).await
-    }
-
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'install_blocking', to use the blocking variant, or \n\
-        - Call 'install' using the 'async' feature to call asynchronously.")]
-    pub fn install(&mut self, brand_specific_options: &[&OsStr]) -> Result<String, ZoneError> {
-        self.install_blocking(brand_specific_options)
     }
 
     /// Install the specified zone on the system.
@@ -975,14 +905,6 @@ impl Adm {
         self.run([command, brand_specific_options].concat()).await
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'uninstall_blocking', to use the blocking variant, or \n\
-        - Call 'uninstall' using the 'async' feature to call asynchronously.")]
-    pub fn uninstall(&mut self, force: bool) -> Result<String, ZoneError> {
-        self.uninstall_blocking(force)
-    }
-
     /// Uninstalls the zone from the system.
     #[cfg(feature = "sync")]
     pub fn uninstall_blocking(&mut self, force: bool) -> Result<String, ZoneError> {
@@ -1000,14 +922,6 @@ impl Adm {
             args.push("-F");
         }
         self.run(&args).await
-    }
-
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'list_blocking', to use the blocking variant, or \n\
-        - Call 'list' using the 'async' feature to call asynchronously.")]
-    pub fn list() -> Result<Vec<Zone>, ZoneError> {
-        Self::list_blocking()
     }
 
     /// List all zones.
@@ -1090,14 +1004,6 @@ impl Zlogin {
         Zlogin {
             name: name.as_ref().into(),
         }
-    }
-
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'exec_blocking', to use the blocking variant, or \n\
-        - Call 'exec' using the 'async' feature to call asynchronously.")]
-    pub fn exec(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
-        self.exec_blocking(cmd)
     }
 
     /// Executes a command in the zone and returns the result.
