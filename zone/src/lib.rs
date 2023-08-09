@@ -17,7 +17,7 @@ use std::string::ToString;
 use thiserror::Error;
 use zone_cfg_derive::Resource;
 
-const PFEXEC: &str = "/bin/pfexec";
+const PFEXEC: &str = "/usr/bin/pfexec";
 const ZONENAME: &str = "/usr/bin/zonename";
 const ZONEADM: &str = "/usr/sbin/zoneadm";
 const ZONECFG: &str = "/usr/sbin/zonecfg";
