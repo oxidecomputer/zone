@@ -1,6 +1,6 @@
 [package]
 name = "zone"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Sean Klein <sean@oxide.computer>"]
 edition = "2018"
 repository = "https://github.com/oxidecomputer/zone"
@@ -12,7 +12,7 @@ license = "MPL-2.0"
 [dependencies]
 thiserror = "1.0"
 itertools = "0.10"
-zone_cfg_derive = { version = "0.2.0", path = "../zone_cfg_derive" }
+zone_cfg_derive = { version = "0.3.0", path = "../zone_cfg_derive" }
 tokio = { version = "1.23", features = [ "process" ], optional = true }
 
 [features]

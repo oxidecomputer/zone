@@ -11,18 +11,13 @@ use itertools::Itertools;
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 use std::str::FromStr;
 use std::string::ToString;
 use thiserror::Error;
 use zone_cfg_derive::Resource;
 
-#[cfg(all(feature = "sync", feature = "async"))]
-compile_error!(
-    "The 'sync' and 'async' features are currently mutually exclusive. \
-    This restriction may be lifted in the future."
-);
-
-const PFEXEC: &str = "/bin/pfexec";
+const PFEXEC: &str = "/usr/bin/pfexec";
 const ZONENAME: &str = "/usr/bin/zonename";
 const ZONEADM: &str = "/usr/sbin/zoneadm";
 const ZONECFG: &str = "/usr/sbin/zonecfg";
@@ -537,7 +532,7 @@ pub struct Admin {
 /// });
 ///
 /// // Issues the previously enqueued operations to zonecfg.
-/// cfg.run().unwrap();
+/// cfg.run_blocking().unwrap();
 /// ```
 ///
 /// ## Selection and modification of an existing zone.
@@ -555,7 +550,7 @@ pub struct Admin {
 /// cfg.remove_all_capped_memory();
 ///
 /// // Issues the previously enqueued operations to zonecfg.
-/// cfg.run().unwrap();
+/// cfg.run_blocking().unwrap();
 /// ```
 pub struct Config {
     /// Name of the zone.
@@ -639,76 +634,70 @@ impl Config {
         self
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'run_blocking', to use the blocking variant, or \n\
-        - Call 'run' using the 'async' feature to call asynchronously.")]
-    pub fn run(&mut self) -> Result<String, ZoneError> {
-        self.run_blocking()
+    /// Creates a [Command] which can be executed to send the queued
+    /// command to the host.
+    ///
+    /// Addiitonally, clears the previously queued arguments.
+    pub fn as_command(&mut self) -> Command {
+        let separator = ";".to_string();
+        let args =
+            Itertools::intersperse(self.args.iter(), &separator).flat_map(|arg| arg.split(' '));
+        let mut cmd = std::process::Command::new(PFEXEC);
+
+        cmd.env_clear()
+            .arg(ZONECFG)
+            .arg("-z")
+            .arg(&self.name)
+            .args(args);
+
+        self.args.clear();
+        cmd
+    }
+
+    /// Parses the output from a command which was emitted from
+    /// [Self::as_command].
+    pub fn parse_output(output: &Output) -> Result<String, ZoneError> {
+        let out = output.read_stdout()?;
+        Ok(out)
     }
 
     /// Executes the queued commands for the zone, and clears the
     /// current queued arguments.
     #[cfg(feature = "sync")]
     pub fn run_blocking(&mut self) -> Result<String, ZoneError> {
-        let separator = ";".to_string();
-        let args = Itertools::intersperse(self.args.iter(), &separator);
-
-        let out = std::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONECFG)
-            .arg("-z")
-            .arg(&self.name)
-            .args(args)
-            .output()
-            .map_err(ZoneError::Command)?
-            .read_stdout()?;
-        self.args.clear();
-        Ok(out)
+        let output = self.as_command().output().map_err(ZoneError::Command)?;
+        Self::parse_output(&output)
     }
 
     #[cfg(feature = "async")]
     pub async fn run(&mut self) -> Result<String, ZoneError> {
-        let separator = ";".to_string();
-        let args = Itertools::intersperse(self.args.iter(), &separator);
-
-        let out = tokio::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONECFG)
-            .arg("-z")
-            .arg(&self.name)
-            .args(args)
+        let output = tokio::process::Command::from(self.as_command())
             .output()
             .await
-            .map_err(ZoneError::Command)?
-            .read_stdout()?;
-        self.args.clear();
-        Ok(out)
+            .map_err(ZoneError::Command)?;
+        Self::parse_output(&output)
     }
 }
-/// Returns the name of the current zone, if one exists.
-#[cfg(feature = "sync")]
-#[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-    - Call 'current_blocking', to use the blocking variant, or \n\
-    - Call 'current' using the 'async' feature to call asynchronously.")]
-pub fn current() -> Result<String, ZoneError> {
-    current_blocking()
+
+pub fn current_command() -> Command {
+    let mut cmd = std::process::Command::new(ZONENAME);
+    cmd.env_clear();
+    cmd
 }
 
 /// Returns the name of the current zone, if one exists.
 #[cfg(feature = "sync")]
 pub fn current_blocking() -> Result<String, ZoneError> {
-    Ok(std::process::Command::new(ZONENAME)
-        .env_clear()
+    Ok(current_command()
         .output()
         .map_err(ZoneError::Command)?
         .read_stdout()?)
 }
 
+/// Returns the name of the current zone, if one exists.
 #[cfg(feature = "async")]
 pub async fn current() -> Result<String, ZoneError> {
-    Ok(tokio::process::Command::new(ZONENAME)
-        .env_clear()
+    Ok(tokio::process::Command::from(current_command())
         .output()
         .await
         .map_err(ZoneError::Command)?
@@ -853,12 +842,12 @@ impl Adm {
         }
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'boot_blocking', to use the blocking variant, or \n\
-        - Call 'boot' using the 'async' feature to call asynchronously.")]
-    pub fn boot(&mut self) -> Result<String, ZoneError> {
-        self.boot_blocking()
+    pub fn boot_command(&mut self) -> Command {
+        self.as_command(&["boot"])
+    }
+
+    pub fn parse_boot_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
     }
 
     /// Boots (or activates) the zone.
@@ -872,12 +861,12 @@ impl Adm {
         self.run(&["boot"]).await
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'clone_blocking', to use the blocking variant, or \n\
-        - Call 'clone' using the 'async' feature to call asynchronously.")]
-    pub fn clone(&mut self, source: impl AsRef<OsStr>) -> Result<String, ZoneError> {
-        self.clone_blocking(source)
+    pub fn clone_command(&mut self, source: impl AsRef<OsStr>) -> Command {
+        self.as_command(&[OsStr::new("clone"), source.as_ref()])
+    }
+
+    pub fn parse_clone_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
     }
 
     /// Installs a zone by copying an existing installed zone.
@@ -891,12 +880,12 @@ impl Adm {
         self.run(&[OsStr::new("clone"), source.as_ref()]).await
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'halt_blocking', to use the blocking variant, or \n\
-        - Call 'halt' using the 'async' feature to call asynchronously.")]
-    pub fn halt(&mut self) -> Result<String, ZoneError> {
-        self.halt_blocking()
+    pub fn halt_command(&mut self) -> Command {
+        self.as_command(&["halt"])
+    }
+
+    pub fn parse_halt_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
     }
 
     /// Halts the specified zone.
@@ -910,12 +899,12 @@ impl Adm {
         self.run(&["halt"]).await
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'mount_blocking', to use the blocking variant, or \n\
-        - Call 'mount' using the 'async' feature to call asynchronously.")]
-    pub fn mount(&mut self) -> Result<String, ZoneError> {
-        self.mount_blocking()
+    pub fn mount_command(&mut self) -> Command {
+        self.as_command(&["mount"])
+    }
+
+    pub fn parse_mount_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
     }
 
     // TODO: Not documented in manpage, but apparently this exists.
@@ -929,12 +918,12 @@ impl Adm {
         self.run(&["mount"]).await
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'unmount_blocking', to use the blocking variant, or \n\
-        - Call 'unmount' using the 'async' feature to call asynchronously.")]
-    pub fn unmount(&mut self) -> Result<String, ZoneError> {
-        self.unmount_blocking()
+    pub fn unmount_command(&mut self) -> Command {
+        self.as_command(&["unmount"])
+    }
+
+    pub fn parse_unmount_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
     }
 
     // TODO: Not documented in manpage, but apparently this exists.
@@ -948,12 +937,13 @@ impl Adm {
         self.run(&["unmount"]).await
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'install_blocking', to use the blocking variant, or \n\
-        - Call 'install' using the 'async' feature to call asynchronously.")]
-    pub fn install(&mut self, brand_specific_options: &[&OsStr]) -> Result<String, ZoneError> {
-        self.install_blocking(brand_specific_options)
+    pub fn install_command(&mut self, brand_specific_options: &[&OsStr]) -> Command {
+        let command = &[OsStr::new("install")];
+        self.as_command([command, brand_specific_options].concat())
+    }
+
+    pub fn parse_install_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
     }
 
     /// Install the specified zone on the system.
@@ -975,12 +965,16 @@ impl Adm {
         self.run([command, brand_specific_options].concat()).await
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'uninstall_blocking', to use the blocking variant, or \n\
-        - Call 'uninstall' using the 'async' feature to call asynchronously.")]
-    pub fn uninstall(&mut self, force: bool) -> Result<String, ZoneError> {
-        self.uninstall_blocking(force)
+    pub fn uninstall_command(&mut self, force: bool) -> Command {
+        let mut args = vec!["uninstall"];
+        if force {
+            args.push("-F");
+        }
+        self.as_command(&args)
+    }
+
+    pub fn parse_uninstall_output(output: &Output) -> Result<String, ZoneError> {
+        Ok(output.read_stdout()?)
     }
 
     /// Uninstalls the zone from the system.
@@ -1002,44 +996,44 @@ impl Adm {
         self.run(&args).await
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'list_blocking', to use the blocking variant, or \n\
-        - Call 'list' using the 'async' feature to call asynchronously.")]
-    pub fn list() -> Result<Vec<Zone>, ZoneError> {
-        Self::list_blocking()
+    pub fn list_command() -> Command {
+        let mut cmd = std::process::Command::new(PFEXEC);
+        cmd.env_clear().arg(ZONEADM).arg("list").arg("-cip");
+        cmd
+    }
+
+    pub fn parse_list_output(output: &Output) -> Result<Vec<Zone>, ZoneError> {
+        output
+            .read_stdout()?
+            .split('\n')
+            .map(|s| s.parse::<Zone>())
+            .collect::<Result<Vec<Zone>, _>>()
     }
 
     /// List all zones.
     #[cfg(feature = "sync")]
     pub fn list_blocking() -> Result<Vec<Zone>, ZoneError> {
-        std::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONEADM)
-            .arg("list")
-            .arg("-cip")
-            .output()
-            .map_err(ZoneError::Command)?
-            .read_stdout()?
-            .split('\n')
-            .map(|s| s.parse::<Zone>())
-            .collect::<Result<Vec<Zone>, _>>()
+        let output = Self::list_command().output().map_err(ZoneError::Command)?;
+        Self::parse_list_output(&output)
     }
 
     #[cfg(feature = "async")]
     pub async fn list() -> Result<Vec<Zone>, ZoneError> {
-        tokio::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONEADM)
-            .arg("list")
-            .arg("-cip")
+        let output = tokio::process::Command::from(Self::list_command())
             .output()
             .await
-            .map_err(ZoneError::Command)?
-            .read_stdout()?
-            .split('\n')
-            .map(|s| s.parse::<Zone>())
-            .collect::<Result<Vec<Zone>, _>>()
+            .map_err(ZoneError::Command)?;
+        Self::parse_list_output(&output)
+    }
+
+    fn as_command(&self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Command {
+        let mut cmd = std::process::Command::new(PFEXEC);
+        cmd.env_clear()
+            .arg(ZONEADM)
+            .arg("-z")
+            .arg(&self.name)
+            .args(args);
+        cmd
     }
 
     #[cfg(feature = "sync")]
@@ -1047,12 +1041,8 @@ impl Adm {
         &self,
         args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     ) -> Result<String, ZoneError> {
-        let out = std::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONEADM)
-            .arg("-z")
-            .arg(&self.name)
-            .args(args)
+        let out = self
+            .as_command(args)
             .output()
             .map_err(ZoneError::Command)?
             .read_stdout()?;
@@ -1064,12 +1054,7 @@ impl Adm {
         &self,
         args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     ) -> Result<String, ZoneError> {
-        let out = tokio::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZONEADM)
-            .arg("-z")
-            .arg(&self.name)
-            .args(args)
+        let out = tokio::process::Command::from(self.as_command(args))
             .output()
             .await
             .map_err(ZoneError::Command)?
@@ -1092,23 +1077,21 @@ impl Zlogin {
         }
     }
 
-    #[cfg(feature = "sync")]
-    #[deprecated(note = "'zone' now provides asynchronous support. Please either: \n\
-        - Call 'exec_blocking', to use the blocking variant, or \n\
-        - Call 'exec' using the 'async' feature to call asynchronously.")]
-    pub fn exec(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
-        self.exec_blocking(cmd)
+    pub fn as_command(&self, cmds: impl AsRef<OsStr>) -> Command {
+        let mut cmd = std::process::Command::new(PFEXEC);
+        cmd.env_clear()
+            .arg(ZLOGIN)
+            .arg("-Q")
+            .arg(&self.name)
+            .arg(cmds);
+        cmd
     }
 
     /// Executes a command in the zone and returns the result.
     #[cfg(feature = "sync")]
     pub fn exec_blocking(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
-        Ok(std::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZLOGIN)
-            .arg("-Q")
-            .arg(&self.name)
-            .arg(cmd)
+        Ok(self
+            .as_command(cmd)
             .output()
             .map_err(ZoneError::Command)?
             .read_stdout()?)
@@ -1116,12 +1099,7 @@ impl Zlogin {
 
     #[cfg(feature = "async")]
     pub async fn exec(&self, cmd: impl AsRef<OsStr>) -> Result<String, ZoneError> {
-        Ok(tokio::process::Command::new(PFEXEC)
-            .env_clear()
-            .arg(ZLOGIN)
-            .arg("-Q")
-            .arg(&self.name)
-            .arg(cmd)
+        Ok(tokio::process::Command::from(self.as_command(cmd))
             .output()
             .await
             .map_err(ZoneError::Command)?
@@ -1136,7 +1114,7 @@ mod tests {
     #[cfg(target_os = "illumos")]
     #[test]
     fn test_current_zone() {
-        let zone = current().unwrap();
+        let zone = current_blocking().unwrap();
         assert_eq!("global", zone);
     }
 
@@ -1302,14 +1280,14 @@ mod tests {
             ..Default::default()
         });
 
-        cfg.run().unwrap();
-        cfg.delete(true).run().unwrap();
+        cfg.run_blocking().unwrap();
+        cfg.delete(true).run_blocking().unwrap();
     }
 
     #[cfg(target_os = "illumos")]
     #[test]
     fn test_list_global() {
-        let zones = Adm::list().unwrap();
+        let zones = Adm::list_blocking().unwrap();
 
         let global = zones.iter().find(|zone| zone.global()).unwrap();
 
@@ -1327,10 +1305,10 @@ mod tests {
         // Create a zone.
         let mut cfg = Config::create(name, true, CreationOptions::Default);
         cfg.get_global().set_path(path).set_autoboot(true);
-        cfg.run().unwrap();
+        cfg.run_blocking().unwrap();
 
         // Observe that the zone exists.
-        let zone = Adm::list()
+        let zone = Adm::list_blocking()
             .unwrap()
             .into_iter()
             .find(|z| z.name() == name)
@@ -1338,10 +1316,10 @@ mod tests {
         assert_eq!(zone.path(), path);
 
         // Destroy the zone
-        cfg.delete(true).run().unwrap();
+        cfg.delete(true).run_blocking().unwrap();
 
         // Observe the zone does not exist
-        assert!(Adm::list()
+        assert!(Adm::list_blocking()
             .unwrap()
             .into_iter()
             .find(|z| z.name() == name)

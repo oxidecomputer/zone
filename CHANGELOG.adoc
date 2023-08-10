@@ -5,6 +5,12 @@
 
 = Zone Changelog
 
+== 0.3.0 (released 2023-08-09)
+
+=== Breaking Changes
+
+* https://github.com/oxidecomputer/zone/pull/22[#22] Removes deprecated methods, and makes the `sync` and `async` features usable together.
+
 == 0.2.0 (released 2022-11-14)
 
 === Breaking Changes
