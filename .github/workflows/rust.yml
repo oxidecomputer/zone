@@ -11,7 +11,7 @@ on:
 
 jobs:
   check-style:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     steps:
     # actions/checkout@v2
     - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3
@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-18.04, macos-10.15 ]
+        os: [ ubuntu-latest, macos-latest ]
     steps:
     # actions/checkout@v2
     - uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3
