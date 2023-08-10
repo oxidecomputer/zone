@@ -640,10 +640,8 @@ impl Config {
     /// Addiitonally, clears the previously queued arguments.
     pub fn as_command(&mut self) -> Command {
         let separator = ";".to_string();
-        let args = Itertools::intersperse(self.args.iter(), &separator)
-            .flat_map(|arg| {
-                arg.split(' ')
-            });
+        let args =
+            Itertools::intersperse(self.args.iter(), &separator).flat_map(|arg| arg.split(' '));
         let mut cmd = std::process::Command::new(PFEXEC);
 
         cmd.env_clear()
