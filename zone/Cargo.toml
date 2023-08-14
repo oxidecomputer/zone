@@ -13,7 +13,7 @@ license = "MPL-2.0"
 thiserror = "1.0"
 itertools = "0.10"
 zone_cfg_derive = { version = "0.3.0", path = "../zone_cfg_derive" }
-tokio = { version = "1.23", features = [ "process" ], optional = true }
+tokio = { version = "1.31", features = [ "process" ], optional = true }
 
 [features]
 default = ["sync"]
