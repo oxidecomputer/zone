@@ -705,7 +705,7 @@ pub async fn current() -> Result<String, ZoneError> {
 }
 
 /// Valid states for a zone.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum State {
     Configured,
     Incomplete,
