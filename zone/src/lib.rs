@@ -843,7 +843,7 @@ impl Adm {
     }
 
     pub fn boot_command(&mut self) -> Command {
-        self.as_command(&["boot"])
+        self.as_command(["boot"])
     }
 
     pub fn parse_boot_output(output: &Output) -> Result<String, ZoneError> {
@@ -853,7 +853,7 @@ impl Adm {
     /// Boots (or activates) the zone.
     #[cfg(feature = "sync")]
     pub fn boot_blocking(&mut self) -> Result<String, ZoneError> {
-        self.run_blocking(&["boot"])
+        self.run_blocking(["boot"])
     }
 
     #[cfg(feature = "async")]
@@ -862,7 +862,7 @@ impl Adm {
     }
 
     pub fn clone_command(&mut self, source: impl AsRef<OsStr>) -> Command {
-        self.as_command(&[OsStr::new("clone"), source.as_ref()])
+        self.as_command([OsStr::new("clone"), source.as_ref()])
     }
 
     pub fn parse_clone_output(output: &Output) -> Result<String, ZoneError> {
@@ -872,7 +872,7 @@ impl Adm {
     /// Installs a zone by copying an existing installed zone.
     #[cfg(feature = "sync")]
     pub fn clone_blocking(&mut self, source: impl AsRef<OsStr>) -> Result<String, ZoneError> {
-        self.run_blocking(&[OsStr::new("clone"), source.as_ref()])
+        self.run_blocking([OsStr::new("clone"), source.as_ref()])
     }
 
     #[cfg(feature = "async")]
@@ -881,7 +881,7 @@ impl Adm {
     }
 
     pub fn halt_command(&mut self) -> Command {
-        self.as_command(&["halt"])
+        self.as_command(["halt"])
     }
 
     pub fn parse_halt_output(output: &Output) -> Result<String, ZoneError> {
@@ -891,7 +891,7 @@ impl Adm {
     /// Halts the specified zone.
     #[cfg(feature = "sync")]
     pub fn halt_blocking(&mut self) -> Result<String, ZoneError> {
-        self.run_blocking(&["halt"])
+        self.run_blocking(["halt"])
     }
 
     #[cfg(feature = "async")]
@@ -900,7 +900,7 @@ impl Adm {
     }
 
     pub fn mount_command(&mut self) -> Command {
-        self.as_command(&["mount"])
+        self.as_command(["mount"])
     }
 
     pub fn parse_mount_output(output: &Output) -> Result<String, ZoneError> {
@@ -910,7 +910,7 @@ impl Adm {
     // TODO: Not documented in manpage, but apparently this exists.
     #[cfg(feature = "sync")]
     pub fn mount_blocking(&mut self) -> Result<String, ZoneError> {
-        self.run_blocking(&["mount"])
+        self.run_blocking(["mount"])
     }
 
     #[cfg(feature = "async")]
@@ -919,7 +919,7 @@ impl Adm {
     }
 
     pub fn unmount_command(&mut self) -> Command {
-        self.as_command(&["unmount"])
+        self.as_command(["unmount"])
     }
 
     pub fn parse_unmount_output(output: &Output) -> Result<String, ZoneError> {
@@ -929,7 +929,7 @@ impl Adm {
     // TODO: Not documented in manpage, but apparently this exists.
     #[cfg(feature = "sync")]
     pub fn unmount_blocking(&mut self) -> Result<String, ZoneError> {
-        self.run_blocking(&["unmount"])
+        self.run_blocking(["unmount"])
     }
 
     #[cfg(feature = "async")]
@@ -1319,10 +1319,9 @@ mod tests {
         cfg.delete(true).run_blocking().unwrap();
 
         // Observe the zone does not exist
-        assert!(Adm::list_blocking()
+        assert!(!Adm::list_blocking()
             .unwrap()
             .into_iter()
-            .find(|z| z.name() == name)
-            .is_none());
+            .any(|z| z.name() == name));
     }
 }

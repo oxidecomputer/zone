@@ -119,7 +119,7 @@ fn get_scope_name(input_name: &Ident) -> Ident {
 }
 
 // Within the scope object, provide setters.
-fn setters(scope_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro2::TokenStream {
+fn setters(scope_name: &Ident, parsed_fields: &[ParsedField]) -> proc_macro2::TokenStream {
     parsed_fields
         .iter()
         .map(|parsed| {
@@ -153,8 +153,8 @@ fn setters(scope_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro2:
         .collect()
 }
 
-fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro2::TokenStream {
-    let scope_name = get_scope_name(&input_name);
+fn selectors(input_name: &Ident, parsed_fields: &[ParsedField]) -> proc_macro2::TokenStream {
+    let scope_name = get_scope_name(input_name);
     let input_name_kebab = input_name.to_string().to_kebab_case();
     parsed_fields
         .iter()
@@ -225,10 +225,10 @@ fn selectors(input_name: &Ident, parsed_fields: &Vec<ParsedField>) -> proc_macro
 // Create the mechanism to create/destroy the scope object.
 fn constructor(
     input_name: &Ident,
-    parsed_fields: &Vec<ParsedField>,
+    parsed_fields: &[ParsedField],
     global_attrs: &GlobalAttrs,
 ) -> proc_macro2::TokenStream {
-    let scope_name = get_scope_name(&input_name);
+    let scope_name = get_scope_name(input_name);
     let input_name_snake = input_name.to_string().to_snake_case();
     let input_name_kebab = input_name.to_string().to_kebab_case();
 
@@ -414,8 +414,5 @@ fn parse_attributes(attrs: &[syn::Attribute]) -> (Vec<ResourceAttr>, Vec<Resourc
             attr.parse_args_with(Punctuated::<ResourceAttr, Token![,]>::parse_terminated)
                 .unwrap_or_abort()
         })
-        .partition(|attr| match attr {
-            ResourceAttr::Global(_) => true,
-            _ => false,
-        })
+        .partition(|attr| matches!(attr, ResourceAttr::Global(_)))
 }

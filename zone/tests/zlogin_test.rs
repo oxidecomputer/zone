@@ -13,7 +13,7 @@ const PFEXEC: &str = "/usr/bin/pfexec";
 fn test_zlogin() {
     // Setup zfs pool for zone.
     zfs_zonetest_create();
-    let _unwind_zonetest_create = Defer::new(|| zfs_zonetest_destroy());
+    let _unwind_zonetest_create = Defer::new(zfs_zonetest_destroy);
 
     let name = "zexec";
     let path = Path::new("/zonetest/zexec");
@@ -88,17 +88,17 @@ fn zfs_zonetest_destroy() {
         .unwrap();
 }
 
-struct Defer<F: FnOnce() -> ()> {
+struct Defer<F: FnOnce()> {
     func: Option<F>,
 }
 
-impl<F: FnOnce() -> ()> Drop for Defer<F> {
+impl<F: FnOnce()> Drop for Defer<F> {
     fn drop(&mut self) {
         (self.func.take().unwrap())()
     }
 }
 
-impl<F: FnOnce() -> ()> Defer<F> {
+impl<F: FnOnce()> Defer<F> {
     fn new(func: F) -> Self {
         Defer { func: Some(func) }
     }
