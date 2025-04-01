@@ -739,13 +739,13 @@ impl FromStr for State {
 
 #[derive(Debug, Clone)]
 pub struct Zone {
-    id: Option<u64>,
-    name: String,
-    state: State,
-    path: PathBuf,
-    uuid: Option<String>,
-    brand: String,
-    ip_type: IpType,
+    pub id: Option<u64>,
+    pub name: String,
+    pub state: State,
+    pub path: PathBuf,
+    pub uuid: Option<String>,
+    pub brand: String,
+    pub ip_type: IpType,
 }
 
 impl Zone {
