@@ -19,5 +19,5 @@ proc-macro2 = "1"
 quote = "1"
 
 [dependencies.syn]
-version = "1"
+version = "2"
 features = [ "parsing", "printing", "extra-traits" ]
